@@ -13,10 +13,18 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func CreateUser(ctx context.Context, conn *pgxpool.Pool, user *dto.UserRegisterRequest) (*dto.PrivateProfileResponse, error) {
-	queries := repository.New(conn)
+type UserService struct {
+	queries *repository.Queries
+}
 
-	exists, err := queries.UserExists(ctx, repository.UserExistsParams{
+func NewUserService(pool *pgxpool.Pool) *UserService {
+	return &UserService{
+		queries: repository.New(pool),
+	}
+}
+
+func (s *UserService) CreateUser(ctx context.Context, user *dto.UserRegisterRequest) (*dto.PrivateProfileResponse, error) {
+	exists, err := s.queries.UserExists(ctx, repository.UserExistsParams{
 		Username: user.Username,
 		Email:    user.Email,
 	})
@@ -43,7 +51,7 @@ func CreateUser(ctx context.Context, conn *pgxpool.Pool, user *dto.UserRegisterR
 
 	now := time.Now()
 
-	result, err := queries.CreateUser(ctx, repository.CreateUserParams{
+	result, err := s.queries.CreateUser(ctx, repository.CreateUserParams{
 		Username:  user.Username,
 		Email:     user.Email,
 		Password:  string(hashedPassword),
@@ -57,32 +65,28 @@ func CreateUser(ctx context.Context, conn *pgxpool.Pool, user *dto.UserRegisterR
 	return dto.ToPrivateProfile(&result), nil
 }
 
-func GetUserById(ctx context.Context, conn *pgxpool.Pool, id int32) (*dto.PublicProfileResponse, error) {
-	queries := repository.New(conn)
-	user, err := queries.GetUserByID(ctx, id)
+func (s *UserService) GetUserById(ctx context.Context, id int32) (*dto.PublicProfileResponse, error) {
+	user, err := s.queries.GetUserByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	return dto.ToPublicProfile(&user), nil
 }
 
-func GetUserByUsername(ctx context.Context, conn *pgxpool.Pool, username string) (*dto.PublicProfileResponse, error) {
-	queries := repository.New(conn)
-	user, err := queries.GetUserByUsername(ctx, username)
+func (s *UserService) GetUserByUsername(ctx context.Context, username string) (*dto.PublicProfileResponse, error) {
+	user, err := s.queries.GetUserByUsername(ctx, username)
 	if err != nil {
 		return nil, err
 	}
 	return dto.ToPublicProfile(&user), nil
 }
 
-func DeleteUser(ctx context.Context, conn *pgxpool.Pool, id int32) error {
-	queries := repository.New(conn)
-	return queries.DeleteUser(ctx, id)
+func (s *UserService) DeleteUser(ctx context.Context, id int32) error {
+	return s.queries.DeleteUser(ctx, id)
 }
 
-func ListUsers(ctx context.Context, conn *pgxpool.Pool, params repository.ListUsersParams) ([]*dto.PublicProfileResponse, error) {
-	queries := repository.New(conn)
-	users, err := queries.ListUsers(ctx, params)
+func (s *UserService) ListUsers(ctx context.Context, params repository.ListUsersParams) ([]*dto.PublicProfileResponse, error) {
+	users, err := s.queries.ListUsers(ctx, params)
 	if err != nil {
 		return nil, err
 	}

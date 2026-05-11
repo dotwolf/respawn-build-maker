@@ -2,6 +2,7 @@ package routes
 
 import (
 	"main/apps/api/internal/handlers"
+	"main/apps/api/internal/services"
 
 	_ "main/apps/api/docs"
 
@@ -13,11 +14,14 @@ import (
 
 func SetupRoutes(router *gin.Engine, pool *pgxpool.Pool) {
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
+	userService := services.NewUserService(pool)
+
 	users := router.Group("/users")
 	{
-		users.POST("", handlers.CreateUser(pool))
-		users.GET("", handlers.GetUserByQuery(pool))
-		users.DELETE("/:id", handlers.DeleteUser(pool)) // Protect later with authentication
+		users.POST("", handlers.CreateUser(userService))
+		users.GET("", handlers.GetUserByQuery(userService))
+		users.DELETE("/:id", handlers.DeleteUser(userService)) // Protect later with authentication
 	}
 
 }

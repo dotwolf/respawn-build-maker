@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // CreateUser godoc
@@ -23,14 +22,14 @@ import (
 // @Failure      409  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /users [post]
-func CreateUser(conn *pgxpool.Pool) gin.HandlerFunc {
+func CreateUser(UserService *services.UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req dto.UserRegisterRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
 		}
-		user, err := services.CreateUser(c.Request.Context(), conn, &req)
+		user, err := UserService.CreateUser(c.Request.Context(), &req)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -55,10 +54,10 @@ func CreateUser(conn *pgxpool.Pool) gin.HandlerFunc {
 // @Failure      404  {object}  map[string]string "User not found"
 // @Failure      500  {object}  map[string]string "Internal server error"
 // @Router       /users [get]
-func GetUserByQuery(conn *pgxpool.Pool) gin.HandlerFunc {
+func GetUserByQuery(UserService *services.UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if username := c.Query("username"); username != "" {
-			user, err := services.GetUserByUsername(c.Request.Context(), conn, username)
+			user, err := UserService.GetUserByUsername(c.Request.Context(), username)
 			if err != nil {
 				c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 				return
@@ -73,7 +72,7 @@ func GetUserByQuery(conn *pgxpool.Pool) gin.HandlerFunc {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 				return
 			}
-			user, err := services.GetUserById(c.Request.Context(), conn, int32(id))
+			user, err := UserService.GetUserById(c.Request.Context(), int32(id))
 			if err != nil {
 				c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 				return
@@ -102,7 +101,7 @@ func GetUserByQuery(conn *pgxpool.Pool) gin.HandlerFunc {
 			Limit:  int32(limit),
 			Offset: int32(offset),
 		}
-		users, err := services.ListUsers(c.Request.Context(), conn, req)
+		users, err := UserService.ListUsers(c.Request.Context(), req)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -128,7 +127,7 @@ func GetUserByQuery(conn *pgxpool.Pool) gin.HandlerFunc {
 // @Failure      500  {object}  map[string]string "Internal server error"
 // @Security     BearerAuth
 // @Router       /users/{id} [delete]
-func DeleteUser(conn *pgxpool.Pool) gin.HandlerFunc {
+func DeleteUser(UserService *services.UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idStr := c.Param("id")
 		id, err := strconv.Atoi(idStr)
@@ -136,7 +135,7 @@ func DeleteUser(conn *pgxpool.Pool) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
-		err = services.DeleteUser(c.Request.Context(), conn, int32(id))
+		err = UserService.DeleteUser(c.Request.Context(), int32(id))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
