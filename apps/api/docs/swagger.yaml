@@ -1,5 +1,49 @@
 basePath: /
 definitions:
+  dto.BuildCreateRequest:
+    properties:
+      components:
+        items:
+          type: integer
+        type: array
+      creator_user_id:
+        type: integer
+      name:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+    required:
+    - components
+    - creator_user_id
+    - name
+    type: object
+  dto.BuildResponse:
+    properties:
+      components:
+        items:
+          type: integer
+        type: array
+      created_at:
+        type: string
+      creator_user_id:
+        type: integer
+      id:
+        type: string
+      name:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      template_id:
+        type: string
+      updated_at:
+        type: string
+      vote_score:
+        type: integer
+    type: object
   dto.PrivateProfileResponse:
     properties:
       created_at:
@@ -18,6 +62,47 @@ definitions:
       id:
         type: integer
       username:
+        type: string
+    type: object
+  dto.TemplateCreateRequest:
+    properties:
+      component_pool:
+        items:
+          type: integer
+        type: array
+      creator_user_id:
+        type: integer
+      name:
+        type: string
+      rules:
+        items:
+          type: integer
+        type: array
+    required:
+    - component_pool
+    - creator_user_id
+    - name
+    - rules
+    type: object
+  dto.TemplateResponse:
+    properties:
+      component_pool:
+        items:
+          type: integer
+        type: array
+      created_at:
+        type: string
+      creator_user_id:
+        type: integer
+      id:
+        type: string
+      name:
+        type: string
+      rules:
+        items:
+          type: integer
+        type: array
+      updated_at:
         type: string
     type: object
   dto.UserRegisterRequest:
@@ -44,6 +129,250 @@ info:
   title: Respawn Build Maker API
   version: "1.0"
 paths:
+  /templates:
+    get:
+      consumes:
+      - application/json
+      description: List templates created by a user with pagination
+      parameters:
+      - description: Creator user ID
+        in: query
+        name: user_id
+        required: true
+        type: integer
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Page offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/dto.TemplateResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List templates by user
+      tags:
+      - templates
+    post:
+      consumes:
+      - application/json
+      description: Creates a new template with a component pool and rules
+      parameters:
+      - description: Template creation data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.TemplateCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/dto.TemplateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new template
+      tags:
+      - templates
+  /templates/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Returns a single template by identifier
+      parameters:
+      - description: Template ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.TemplateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get a template by ID
+      tags:
+      - templates
+  /templates/{template_id}/builds:
+    get:
+      consumes:
+      - application/json
+      description: List builds associated with a template
+      parameters:
+      - description: Template ID
+        in: path
+        name: template_id
+        required: true
+        type: string
+      - description: Creator user ID
+        in: query
+        name: user_id
+        type: integer
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Page offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/dto.BuildResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List builds by template
+      tags:
+      - builds
+    post:
+      consumes:
+      - application/json
+      description: Creates a build from a template
+      parameters:
+      - description: Template ID
+        in: path
+        name: template_id
+        required: true
+        type: string
+      - description: Build creation data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.BuildCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/dto.BuildResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new build
+      tags:
+      - builds
+  /templates/{template_id}/builds/{build_id}:
+    get:
+      consumes:
+      - application/json
+      description: Returns a single build by identifier
+      parameters:
+      - description: Template ID
+        in: path
+        name: template_id
+        required: true
+        type: string
+      - description: Build ID
+        in: path
+        name: build_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.BuildResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get a build by ID
+      tags:
+      - builds
   /users:
     get:
       consumes:

@@ -8,6 +8,59 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Build struct {
+	ID            string
+	Name          string
+	CreatorUserID int32
+	TemplateID    string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	Tags          []string
+	VoteScore     int32
+	Components    []byte
+}
+
+type BuildSlot struct {
+	BuildID     string
+	Category    string
+	Position    int32
+	ComponentID pgtype.Text
+	Level       pgtype.Int4
+	Tier        pgtype.Int4
+}
+
+type BuildVote struct {
+	UserID    int32
+	BuildID   string
+	Value     int16
+	CreatedAt pgtype.Timestamptz
+}
+
+type Component struct {
+	ID           int64
+	TemplateID   string
+	ScopedNumber int32
+	Name         string
+	Category     string
+	Effects      []byte
+	HasLevels    bool
+	LevelScaling pgtype.Text
+	LevelRule    []byte
+	IsDeleted    bool
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+}
+
+type Template struct {
+	ID            string
+	Name          string
+	CreatorUserID int32
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	Rules         []byte
+	ComponentPool []byte
+}
+
 type User struct {
 	ID        int32
 	Username  string

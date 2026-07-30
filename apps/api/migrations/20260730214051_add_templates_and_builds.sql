@@ -1,13 +1,5 @@
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(255) NOT NULL UNIQUE,
-    email VARCHAR(255) NOT NULL UNIQUE,
-    password VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE templates (
+-- +goose Up
+CREATE TABLE IF NOT EXISTS templates (
     id VARCHAR(255) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     creator_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -17,10 +9,9 @@ CREATE TABLE templates (
     component_pool JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 
-CREATE TABLE components (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS components (
+    id VARCHAR(255) PRIMARY KEY,
     template_id VARCHAR(255) NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
-    scoped_number INTEGER NOT NULL,  -- 1, 2, 3... per template, for display only
     name VARCHAR(255) NOT NULL,
     category VARCHAR(255) NOT NULL,
     effects JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -29,10 +20,10 @@ CREATE TABLE components (
     level_rule JSONB,
     is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (template_id, scoped_number)
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-CREATE TABLE builds (
+
+CREATE TABLE IF NOT EXISTS builds (
     id VARCHAR(255) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     creator_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -44,20 +35,16 @@ CREATE TABLE builds (
     components JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
-CREATE TABLE build_slots (
-    build_id VARCHAR(255) NOT NULL REFERENCES builds(id) ON DELETE CASCADE,
-    category VARCHAR(255) NOT NULL,
-    position INTEGER NOT NULL CHECK (position >= 0),
-    component_id VARCHAR(255) REFERENCES components(id) ON DELETE SET NULL,
-    level INTEGER,
-    tier INTEGER,
-    PRIMARY KEY (build_id, category, position)
-);
-
-CREATE TABLE build_votes (
+CREATE TABLE IF NOT EXISTS build_votes (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     build_id VARCHAR(255) NOT NULL REFERENCES builds(id) ON DELETE CASCADE,
     value SMALLINT NOT NULL CHECK (value IN (-1, 1)),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, build_id)
 );
+
+-- +goose Down
+DROP TABLE IF EXISTS build_votes;
+DROP TABLE IF EXISTS builds;
+DROP TABLE IF EXISTS components;
+DROP TABLE IF EXISTS templates;
