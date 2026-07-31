@@ -20,7 +20,7 @@ import (
 // @Failure      400  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /templates [post]
-func CreateTemplate(templateService *services.TemplateService) gin.HandlerFunc {
+func CreateTemplate(templateService services.TemplateServiceInterface) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req dto.TemplateCreateRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -49,7 +49,7 @@ func CreateTemplate(templateService *services.TemplateService) gin.HandlerFunc {
 // @Failure      404  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /templates/{id} [get]
-func GetTemplateByID(templateService *services.TemplateService) gin.HandlerFunc {
+func GetTemplateByID(templateService services.TemplateServiceInterface) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("template_id")
 		if id == "" {
@@ -79,7 +79,7 @@ func GetTemplateByID(templateService *services.TemplateService) gin.HandlerFunc 
 // @Failure      400  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /templates [get]
-func ListTemplatesByUser(templateService *services.TemplateService) gin.HandlerFunc {
+func ListTemplatesByUser(templateService services.TemplateServiceInterface) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userIDStr := c.Query("user_id")
 		if userIDStr == "" {

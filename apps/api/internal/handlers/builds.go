@@ -21,7 +21,7 @@ import (
 // @Failure      400  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /templates/{template_id}/builds [post]
-func CreateBuild(buildService *services.BuildService) gin.HandlerFunc {
+func CreateBuild(buildService services.BuildServiceInterface) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		templateID := c.Param("template_id")
 		if templateID == "" {
@@ -57,7 +57,7 @@ func CreateBuild(buildService *services.BuildService) gin.HandlerFunc {
 // @Failure      404  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /templates/{template_id}/builds/{build_id} [get]
-func GetBuildByID(buildService *services.BuildService) gin.HandlerFunc {
+func GetBuildByID(buildService services.BuildServiceInterface) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		templateID := c.Param("template_id")
 		if templateID == "" {
@@ -94,7 +94,7 @@ func GetBuildByID(buildService *services.BuildService) gin.HandlerFunc {
 // @Failure      400  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /templates/{template_id}/builds [get]
-func ListBuildsByTemplate(buildService *services.BuildService) gin.HandlerFunc {
+func ListBuildsByTemplate(buildService services.BuildServiceInterface) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		templateID := c.Param("template_id")
 		if templateID == "" {

@@ -14,7 +14,7 @@ CREATE TABLE templates (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     rules JSONB NOT NULL DEFAULT '[]'::jsonb,
-    component_pool JSONB NOT NULL DEFAULT '[]'::jsonb
+    is_private BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE components (
@@ -41,7 +41,8 @@ CREATE TABLE builds (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
     vote_score INTEGER NOT NULL DEFAULT 0,
-    components JSONB NOT NULL DEFAULT '{}'::jsonb
+    components JSONB NOT NULL DEFAULT '{}'::jsonb,
+    is_private BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE build_slots (

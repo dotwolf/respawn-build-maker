@@ -80,7 +80,13 @@ func (s *UserService) GetUserByUsername(ctx context.Context, username string) (*
 	}
 	return dto.ToPublicProfile(&user), nil
 }
-
+func (s *UserService) GetPrivateUserByID(ctx context.Context, id int32) (*dto.PrivateProfileResponse, error) {
+	user, err := s.queries.GetUserByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return dto.ToPrivateProfile(&user), nil
+}
 func (s *UserService) DeleteUser(ctx context.Context, id int32) error {
 	return s.queries.DeleteUser(ctx, id)
 }

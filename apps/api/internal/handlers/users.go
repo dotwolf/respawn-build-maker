@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"main/apps/api/internal/auth"
 	"main/apps/api/internal/dto"
 	"main/apps/api/internal/repository"
 	"main/apps/api/internal/services"
@@ -22,7 +23,7 @@ import (
 // @Failure      409  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /users [post]
-func CreateUser(UserService *services.UserService) gin.HandlerFunc {
+func CreateUser(UserService services.UserServiceInterface) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req dto.UserRegisterRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -54,7 +55,7 @@ func CreateUser(UserService *services.UserService) gin.HandlerFunc {
 // @Failure      404  {object}  map[string]string "User not found"
 // @Failure      500  {object}  map[string]string "Internal server error"
 // @Router       /users [get]
-func GetUserByQuery(UserService *services.UserService) gin.HandlerFunc {
+func GetUserByQuery(UserService services.UserServiceInterface) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if username := c.Query("username"); username != "" {
 			user, err := UserService.GetUserByUsername(c.Request.Context(), username)
@@ -114,6 +115,24 @@ func GetUserByQuery(UserService *services.UserService) gin.HandlerFunc {
 	}
 }
 
+func GetCurrentUser(UserService services.UserServiceInterface) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := auth.GetClaims(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing auth claims"})
+			return
+		}
+
+		user, err := UserService.GetPrivateUserByID(c.Request.Context(), claims.UserID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, user)
+	}
+}
+
 // DeleteUser godoc
 // @Summary      Delete a user
 // @Description  Permanently deletes a user by ID (requires authentication)
@@ -127,14 +146,26 @@ func GetUserByQuery(UserService *services.UserService) gin.HandlerFunc {
 // @Failure      500  {object}  map[string]string "Internal server error"
 // @Security     BearerAuth
 // @Router       /users/{id} [delete]
-func DeleteUser(UserService *services.UserService) gin.HandlerFunc {
+func DeleteUser(UserService services.UserServiceInterface) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		claims, ok := auth.GetClaims(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing auth claims"})
+			return
+		}
+
 		idStr := c.Param("id")
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 			return
 		}
+
+		if int32(id) != claims.UserID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "you can only delete your own account"})
+			return
+		}
+
 		err = UserService.DeleteUser(c.Request.Context(), int32(id))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

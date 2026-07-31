@@ -32,10 +32,11 @@ INSERT INTO builds (
     updated_at,
     tags,
     vote_score,
-    components
+    components,
+    is_private
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9
-) RETURNING id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+) RETURNING id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 `
 
 type CreateBuildParams struct {
@@ -48,6 +49,7 @@ type CreateBuildParams struct {
 	Tags          []string
 	VoteScore     int32
 	Components    []byte
+	IsPrivate     bool
 }
 
 func (q *Queries) CreateBuild(ctx context.Context, arg CreateBuildParams) (Build, error) {
@@ -61,6 +63,7 @@ func (q *Queries) CreateBuild(ctx context.Context, arg CreateBuildParams) (Build
 		arg.Tags,
 		arg.VoteScore,
 		arg.Components,
+		arg.IsPrivate,
 	)
 	var i Build
 	err := row.Scan(
@@ -73,6 +76,7 @@ func (q *Queries) CreateBuild(ctx context.Context, arg CreateBuildParams) (Build
 		&i.Tags,
 		&i.VoteScore,
 		&i.Components,
+		&i.IsPrivate,
 	)
 	return i, err
 }
@@ -162,10 +166,10 @@ INSERT INTO templates (
     created_at,
     updated_at,
     rules,
-    component_pool
+    is_private
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7
-) RETURNING id, name, creator_user_id, created_at, updated_at, rules, component_pool
+) RETURNING id, name, creator_user_id, created_at, updated_at, rules, is_private
 `
 
 type CreateTemplateParams struct {
@@ -175,7 +179,7 @@ type CreateTemplateParams struct {
 	CreatedAt     pgtype.Timestamptz
 	UpdatedAt     pgtype.Timestamptz
 	Rules         []byte
-	ComponentPool []byte
+	IsPrivate     bool
 }
 
 func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) (Template, error) {
@@ -186,7 +190,7 @@ func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) 
 		arg.CreatedAt,
 		arg.UpdatedAt,
 		arg.Rules,
-		arg.ComponentPool,
+		arg.IsPrivate,
 	)
 	var i Template
 	err := row.Scan(
@@ -196,7 +200,7 @@ func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Rules,
-		&i.ComponentPool,
+		&i.IsPrivate,
 	)
 	return i, err
 }
@@ -312,9 +316,9 @@ func (q *Queries) DeleteUserByEmail(ctx context.Context, email string) error {
 }
 
 const getBuildByID = `-- name: GetBuildByID :one
-SELECT id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components
+SELECT id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 FROM builds
-WHERE id = $1
+WHERE id = $1 AND is_private = FALSE
 LIMIT 1
 `
 
@@ -331,6 +335,7 @@ func (q *Queries) GetBuildByID(ctx context.Context, id string) (Build, error) {
 		&i.Tags,
 		&i.VoteScore,
 		&i.Components,
+		&i.IsPrivate,
 	)
 	return i, err
 }
@@ -405,9 +410,9 @@ func (q *Queries) GetComponentByID(ctx context.Context, arg GetComponentByIDPara
 }
 
 const getTemplateByID = `-- name: GetTemplateByID :one
-SELECT id, name, creator_user_id, created_at, updated_at, rules, component_pool
+SELECT id, name, creator_user_id, created_at, updated_at, rules, is_private
 FROM templates
-WHERE id = $1
+WHERE id = $1 AND is_private = FALSE
 LIMIT 1
 `
 
@@ -421,7 +426,7 @@ func (q *Queries) GetTemplateByID(ctx context.Context, id string) (Template, err
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Rules,
-		&i.ComponentPool,
+		&i.IsPrivate,
 	)
 	return i, err
 }
@@ -531,9 +536,9 @@ func (q *Queries) GetUsersByIDs(ctx context.Context, dollar_1 []int32) ([]GetUse
 }
 
 const listBuildsByTemplate = `-- name: ListBuildsByTemplate :many
-SELECT id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components
+SELECT id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 FROM builds
-WHERE template_id = $1
+WHERE template_id = $1 AND is_private = FALSE
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
 `
@@ -563,6 +568,7 @@ func (q *Queries) ListBuildsByTemplate(ctx context.Context, arg ListBuildsByTemp
 			&i.Tags,
 			&i.VoteScore,
 			&i.Components,
+			&i.IsPrivate,
 		); err != nil {
 			return nil, err
 		}
@@ -575,9 +581,9 @@ func (q *Queries) ListBuildsByTemplate(ctx context.Context, arg ListBuildsByTemp
 }
 
 const listBuildsByUser = `-- name: ListBuildsByUser :many
-SELECT id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components
+SELECT id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 FROM builds
-WHERE creator_user_id = $1
+WHERE creator_user_id = $1 AND is_private = FALSE
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
 `
@@ -607,6 +613,7 @@ func (q *Queries) ListBuildsByUser(ctx context.Context, arg ListBuildsByUserPara
 			&i.Tags,
 			&i.VoteScore,
 			&i.Components,
+			&i.IsPrivate,
 		); err != nil {
 			return nil, err
 		}
@@ -679,9 +686,9 @@ func (q *Queries) ListComponentsByTemplate(ctx context.Context, arg ListComponen
 }
 
 const listTemplatesByUser = `-- name: ListTemplatesByUser :many
-SELECT id, name, creator_user_id, created_at, updated_at, rules, component_pool
+SELECT id, name, creator_user_id, created_at, updated_at, rules, is_private
 FROM templates
-WHERE creator_user_id = $1
+WHERE creator_user_id = $1 AND is_private = FALSE
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
 `
@@ -708,7 +715,7 @@ func (q *Queries) ListTemplatesByUser(ctx context.Context, arg ListTemplatesByUs
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Rules,
-			&i.ComponentPool,
+			&i.IsPrivate,
 		); err != nil {
 			return nil, err
 		}
@@ -772,9 +779,10 @@ SET
     name = COALESCE($1, name),
     updated_at = $2,
     tags = COALESCE($3, tags),
-    components = COALESCE($4, components)
-WHERE id = $5
-RETURNING id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components
+    components = COALESCE($4, components),
+    is_private = COALESCE($5, is_private)
+WHERE id = $6
+RETURNING id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 `
 
 type UpdateBuildParams struct {
@@ -782,6 +790,7 @@ type UpdateBuildParams struct {
 	UpdatedAt  pgtype.Timestamptz
 	Tags       []string
 	Components []byte
+	IsPrivate  bool
 	ID         string
 }
 
@@ -791,6 +800,7 @@ func (q *Queries) UpdateBuild(ctx context.Context, arg UpdateBuildParams) (Build
 		arg.UpdatedAt,
 		arg.Tags,
 		arg.Components,
+		arg.IsPrivate,
 		arg.ID,
 	)
 	var i Build
@@ -804,6 +814,7 @@ func (q *Queries) UpdateBuild(ctx context.Context, arg UpdateBuildParams) (Build
 		&i.Tags,
 		&i.VoteScore,
 		&i.Components,
+		&i.IsPrivate,
 	)
 	return i, err
 }
@@ -814,7 +825,7 @@ SET
     vote_score = $1,
     updated_at = $2
 WHERE id = $3
-RETURNING id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components
+RETURNING id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 `
 
 type UpdateBuildVoteScoreParams struct {
@@ -836,6 +847,7 @@ func (q *Queries) UpdateBuildVoteScore(ctx context.Context, arg UpdateBuildVoteS
 		&i.Tags,
 		&i.VoteScore,
 		&i.Components,
+		&i.IsPrivate,
 	)
 	return i, err
 }
@@ -918,17 +930,17 @@ SET
     name = COALESCE($1, name),
     updated_at = $2,
     rules = COALESCE($3, rules),
-    component_pool = COALESCE($4, component_pool)
+    is_private = COALESCE($4, is_private)
 WHERE id = $5
-RETURNING id, name, creator_user_id, created_at, updated_at, rules, component_pool
+RETURNING id, name, creator_user_id, created_at, updated_at, rules, is_private
 `
 
 type UpdateTemplateParams struct {
-	Name          string
-	UpdatedAt     pgtype.Timestamptz
-	Rules         []byte
-	ComponentPool []byte
-	ID            string
+	Name      string
+	UpdatedAt pgtype.Timestamptz
+	Rules     []byte
+	IsPrivate bool
+	ID        string
 }
 
 func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) (Template, error) {
@@ -936,7 +948,7 @@ func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) 
 		arg.Name,
 		arg.UpdatedAt,
 		arg.Rules,
-		arg.ComponentPool,
+		arg.IsPrivate,
 		arg.ID,
 	)
 	var i Template
@@ -947,7 +959,7 @@ func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Rules,
-		&i.ComponentPool,
+		&i.IsPrivate,
 	)
 	return i, err
 }

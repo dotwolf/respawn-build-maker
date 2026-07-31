@@ -10,14 +10,12 @@ type TemplateCreateRequest struct {
 	Name          string          `json:"name" binding:"required"`
 	CreatorUserID int32           `json:"creator_user_id" binding:"required,gt=0"`
 	Rules         json.RawMessage `json:"rules" binding:"required"`
-	ComponentPool json.RawMessage `json:"component_pool" binding:"required"`
 }
 
 type TemplateUpdateRequest struct {
-	ID            string          `json:"id" binding:"required"`
-	Name          string          `json:"name" binding:"required"`
-	Rules         json.RawMessage `json:"rules" binding:"required"`
-	ComponentPool json.RawMessage `json:"component_pool" binding:"required"`
+	ID    string          `json:"id" binding:"required"`
+	Name  string          `json:"name" binding:"required"`
+	Rules json.RawMessage `json:"rules" binding:"required"`
 }
 
 type TemplateResponse struct {
@@ -27,7 +25,6 @@ type TemplateResponse struct {
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
 	Rules         json.RawMessage `json:"rules,omitempty"`
-	ComponentPool json.RawMessage `json:"component_pool,omitempty"`
 }
 
 func ToTemplateResponse(template *repository.Template) *TemplateResponse {
@@ -42,7 +39,6 @@ func ToTemplateResponse(template *repository.Template) *TemplateResponse {
 		CreatedAt:     template.CreatedAt.Time,
 		UpdatedAt:     template.UpdatedAt.Time,
 		Rules:         json.RawMessage(template.Rules),
-		ComponentPool: json.RawMessage(template.ComponentPool),
 	}
 }
 

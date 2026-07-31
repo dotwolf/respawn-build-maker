@@ -91,21 +91,21 @@ INSERT INTO templates (
     created_at,
     updated_at,
     rules,
-    component_pool
+    is_private
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7
-) RETURNING id, name, creator_user_id, created_at, updated_at, rules, component_pool;
+) RETURNING id, name, creator_user_id, created_at, updated_at, rules, is_private;
 
 -- name: GetTemplateByID :one
-SELECT id, name, creator_user_id, created_at, updated_at, rules, component_pool
+SELECT id, name, creator_user_id, created_at, updated_at, rules, is_private
 FROM templates
-WHERE id = $1
+WHERE id = $1 AND is_private = FALSE
 LIMIT 1;
 
 -- name: ListTemplatesByUser :many
-SELECT id, name, creator_user_id, created_at, updated_at, rules, component_pool
+SELECT id, name, creator_user_id, created_at, updated_at, rules, is_private
 FROM templates
-WHERE creator_user_id = $1
+WHERE creator_user_id = $1 AND is_private = FALSE
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3;
 
@@ -115,9 +115,9 @@ SET
     name = COALESCE($1, name),
     updated_at = $2,
     rules = COALESCE($3, rules),
-    component_pool = COALESCE($4, component_pool)
+    is_private = COALESCE($4, is_private)
 WHERE id = $5
-RETURNING id, name, creator_user_id, created_at, updated_at, rules, component_pool;
+RETURNING id, name, creator_user_id, created_at, updated_at, rules, is_private;
 
 -- name: DeleteTemplate :exec
 DELETE FROM templates
@@ -133,28 +133,29 @@ INSERT INTO builds (
     updated_at,
     tags,
     vote_score,
-    components
+    components,
+    is_private
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9
-) RETURNING id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components;
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+) RETURNING id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private;
 
 -- name: GetBuildByID :one
-SELECT id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components
+SELECT id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 FROM builds
-WHERE id = $1
+WHERE id = $1 AND is_private = FALSE
 LIMIT 1;
 
 -- name: ListBuildsByUser :many
-SELECT id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components
+SELECT id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 FROM builds
-WHERE creator_user_id = $1
+WHERE creator_user_id = $1 AND is_private = FALSE
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3;
 
 -- name: ListBuildsByTemplate :many
-SELECT id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components
+SELECT id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 FROM builds
-WHERE template_id = $1
+WHERE template_id = $1 AND is_private = FALSE
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3;
 
@@ -164,9 +165,10 @@ SET
     name = COALESCE($1, name),
     updated_at = $2,
     tags = COALESCE($3, tags),
-    components = COALESCE($4, components)
-WHERE id = $5
-RETURNING id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components;
+    components = COALESCE($4, components),
+    is_private = COALESCE($5, is_private)
+WHERE id = $6
+RETURNING id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private;
 
 -- name: DeleteBuild :exec
 DELETE FROM builds
@@ -202,7 +204,7 @@ SET
     vote_score = $1,
     updated_at = $2
 WHERE id = $3
-RETURNING id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components;
+RETURNING id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private;
 
 -- name: CreateComponent :one
 INSERT INTO components (

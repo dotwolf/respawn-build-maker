@@ -43,7 +43,6 @@ func (s *TemplateService) CreateTemplate(ctx context.Context, req *dto.TemplateC
 		CreatedAt:     pgtype.Timestamptz{Time: now, Valid: true},
 		UpdatedAt:     pgtype.Timestamptz{Time: now, Valid: true},
 		Rules:         []byte(req.Rules),
-		ComponentPool: []byte(req.ComponentPool),
 	})
 	if err != nil {
 		return nil, err
@@ -101,11 +100,10 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, req *dto.TemplateU
 
 	now := time.Now()
 	template, err := s.queries.UpdateTemplate(ctx, repository.UpdateTemplateParams{
-		ID:            req.ID,
-		Name:          name,
-		UpdatedAt:     pgtype.Timestamptz{Time: now, Valid: true},
-		Rules:         []byte(req.Rules),
-		ComponentPool: []byte(req.ComponentPool),
+		ID:        req.ID,
+		Name:      name,
+		UpdatedAt: pgtype.Timestamptz{Time: now, Valid: true},
+		Rules:     []byte(req.Rules),
 	})
 	if err != nil {
 		return nil, err

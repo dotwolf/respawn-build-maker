@@ -18,6 +18,7 @@ type Build struct {
 	Tags          []string
 	VoteScore     int32
 	Components    []byte
+	IsPrivate     bool
 }
 
 type BuildSlot struct {
@@ -58,7 +59,7 @@ type Template struct {
 	CreatedAt     pgtype.Timestamptz
 	UpdatedAt     pgtype.Timestamptz
 	Rules         []byte
-	ComponentPool []byte
+	IsPrivate     bool
 }
 
 type User struct {

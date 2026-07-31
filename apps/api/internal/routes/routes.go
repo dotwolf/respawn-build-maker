@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"main/apps/api/internal/auth"
 	"main/apps/api/internal/handlers"
 	"main/apps/api/internal/services"
 
@@ -16,14 +17,23 @@ func SetupRoutes(router *gin.Engine, pool *pgxpool.Pool) {
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	userService := services.NewUserService(pool)
+	authService := services.NewAuthService(pool)
 	buildService := services.NewBuildService(pool)
 	templateService := services.NewTemplateService(pool)
+
+	authMiddleware := auth.RequireAuth(authService.VerifyToken)
 
 	users := router.Group("/users")
 	{
 		users.POST("", handlers.CreateUser(userService))
 		users.GET("", handlers.GetUserByQuery(userService))
-		users.DELETE("/:id", handlers.DeleteUser(userService)) // Protect later with authentication
+		users.GET("/me", authMiddleware, handlers.GetCurrentUser(userService))
+		users.DELETE("/:id", authMiddleware, handlers.DeleteUser(userService))
+	}
+
+	authGroup := router.Group("/auth")
+	{
+		authGroup.POST("/login", handlers.Login(authService))
 	}
 
 	templates := router.Group("/templates")
