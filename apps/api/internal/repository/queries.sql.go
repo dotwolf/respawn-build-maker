@@ -26,6 +26,7 @@ const createBuild = `-- name: CreateBuild :one
 INSERT INTO builds (
     id,
     name,
+    description,
     creator_user_id,
     template_id,
     created_at,
@@ -35,13 +36,14 @@ INSERT INTO builds (
     components,
     is_private
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+) RETURNING id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 `
 
 type CreateBuildParams struct {
 	ID            string
 	Name          string
+	Description   pgtype.Text
 	CreatorUserID int32
 	TemplateID    string
 	CreatedAt     pgtype.Timestamptz
@@ -52,10 +54,25 @@ type CreateBuildParams struct {
 	IsPrivate     bool
 }
 
-func (q *Queries) CreateBuild(ctx context.Context, arg CreateBuildParams) (Build, error) {
+type CreateBuildRow struct {
+	ID            string
+	Name          string
+	Description   pgtype.Text
+	CreatorUserID int32
+	TemplateID    string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	Tags          []string
+	VoteScore     int32
+	Components    []byte
+	IsPrivate     bool
+}
+
+func (q *Queries) CreateBuild(ctx context.Context, arg CreateBuildParams) (CreateBuildRow, error) {
 	row := q.db.QueryRow(ctx, createBuild,
 		arg.ID,
 		arg.Name,
+		arg.Description,
 		arg.CreatorUserID,
 		arg.TemplateID,
 		arg.CreatedAt,
@@ -65,10 +82,11 @@ func (q *Queries) CreateBuild(ctx context.Context, arg CreateBuildParams) (Build
 		arg.Components,
 		arg.IsPrivate,
 	)
-	var i Build
+	var i CreateBuildRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
+		&i.Description,
 		&i.CreatorUserID,
 		&i.TemplateID,
 		&i.CreatedAt,
@@ -83,74 +101,69 @@ func (q *Queries) CreateBuild(ctx context.Context, arg CreateBuildParams) (Build
 
 const createComponent = `-- name: CreateComponent :one
 INSERT INTO components (
-    id,
     template_id,
+    scoped_number,
     name,
+    description,
     category,
     effects,
     has_levels,
     level_scaling,
     level_rule,
+    tiers,
     is_deleted,
     created_at,
     updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-) RETURNING id, template_id, name, category, effects, has_levels, level_scaling, level_rule, is_deleted, created_at, updated_at
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+) RETURNING id, template_id, scoped_number, name, description, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
 `
 
 type CreateComponentParams struct {
-	ID           int64
 	TemplateID   string
+	ScopedNumber int32
 	Name         string
+	Description  pgtype.Text
 	Category     string
 	Effects      []byte
 	HasLevels    bool
 	LevelScaling pgtype.Text
 	LevelRule    []byte
+	Tiers        []byte
 	IsDeleted    bool
 	CreatedAt    pgtype.Timestamptz
 	UpdatedAt    pgtype.Timestamptz
 }
 
-type CreateComponentRow struct {
-	ID           int64
-	TemplateID   string
-	Name         string
-	Category     string
-	Effects      []byte
-	HasLevels    bool
-	LevelScaling pgtype.Text
-	LevelRule    []byte
-	IsDeleted    bool
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
-}
-
-func (q *Queries) CreateComponent(ctx context.Context, arg CreateComponentParams) (CreateComponentRow, error) {
+func (q *Queries) CreateComponent(ctx context.Context, arg CreateComponentParams) (Component, error) {
 	row := q.db.QueryRow(ctx, createComponent,
-		arg.ID,
 		arg.TemplateID,
+		arg.ScopedNumber,
 		arg.Name,
+		arg.Description,
 		arg.Category,
 		arg.Effects,
 		arg.HasLevels,
 		arg.LevelScaling,
 		arg.LevelRule,
+		arg.Tiers,
 		arg.IsDeleted,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
-	var i CreateComponentRow
+	var i Component
 	err := row.Scan(
 		&i.ID,
 		&i.TemplateID,
+		&i.ScopedNumber,
 		&i.Name,
+		&i.Description,
 		&i.Category,
 		&i.Effects,
 		&i.HasLevels,
 		&i.LevelScaling,
 		&i.LevelRule,
+		&i.Tiers,
 		&i.IsDeleted,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -162,45 +175,57 @@ const createTemplate = `-- name: CreateTemplate :one
 INSERT INTO templates (
     id,
     name,
+    description,
     creator_user_id,
-    created_at,
-    updated_at,
+    stats,
     rules,
-    is_private
+    components,
+    is_private,
+    created_at,
+    updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7
-) RETURNING id, name, creator_user_id, created_at, updated_at, rules, is_private
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+) RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
 `
 
 type CreateTemplateParams struct {
 	ID            string
 	Name          string
+	Description   pgtype.Text
 	CreatorUserID int32
+	Stats         []byte
+	Rules         []byte
+	Components    []byte
+	IsPrivate     bool
 	CreatedAt     pgtype.Timestamptz
 	UpdatedAt     pgtype.Timestamptz
-	Rules         []byte
-	IsPrivate     bool
 }
 
 func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) (Template, error) {
 	row := q.db.QueryRow(ctx, createTemplate,
 		arg.ID,
 		arg.Name,
+		arg.Description,
 		arg.CreatorUserID,
+		arg.Stats,
+		arg.Rules,
+		arg.Components,
+		arg.IsPrivate,
 		arg.CreatedAt,
 		arg.UpdatedAt,
-		arg.Rules,
-		arg.IsPrivate,
 	)
 	var i Template
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
+		&i.Description,
 		&i.CreatorUserID,
+		&i.Stats,
+		&i.Rules,
+		&i.Components,
+		&i.IsPrivate,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Rules,
-		&i.IsPrivate,
 	)
 	return i, err
 }
@@ -252,6 +277,16 @@ WHERE id = $1
 
 func (q *Queries) DeleteBuild(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, deleteBuild, id)
+	return err
+}
+
+const deleteBuildSlotsByBuild = `-- name: DeleteBuildSlotsByBuild :exec
+DELETE FROM build_slots
+WHERE build_id = $1
+`
+
+func (q *Queries) DeleteBuildSlotsByBuild(ctx context.Context, buildID string) error {
+	_, err := q.db.Exec(ctx, deleteBuildSlotsByBuild, buildID)
 	return err
 }
 
@@ -316,18 +351,33 @@ func (q *Queries) DeleteUserByEmail(ctx context.Context, email string) error {
 }
 
 const getBuildByID = `-- name: GetBuildByID :one
-SELECT id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
+SELECT id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 FROM builds
 WHERE id = $1 AND is_private = FALSE
 LIMIT 1
 `
 
-func (q *Queries) GetBuildByID(ctx context.Context, id string) (Build, error) {
+type GetBuildByIDRow struct {
+	ID            string
+	Name          string
+	Description   pgtype.Text
+	CreatorUserID int32
+	TemplateID    string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	Tags          []string
+	VoteScore     int32
+	Components    []byte
+	IsPrivate     bool
+}
+
+func (q *Queries) GetBuildByID(ctx context.Context, id string) (GetBuildByIDRow, error) {
 	row := q.db.QueryRow(ctx, getBuildByID, id)
-	var i Build
+	var i GetBuildByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
+		&i.Description,
 		&i.CreatorUserID,
 		&i.TemplateID,
 		&i.CreatedAt,
@@ -365,7 +415,7 @@ func (q *Queries) GetBuildVote(ctx context.Context, arg GetBuildVoteParams) (Bui
 }
 
 const getComponentByID = `-- name: GetComponentByID :one
-SELECT id, template_id, name, category, effects, has_levels, level_scaling, level_rule, is_deleted, created_at, updated_at
+SELECT id, template_id, scoped_number, name, description, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
 FROM components
 WHERE id = $1 AND template_id = $2
 LIMIT 1
@@ -376,32 +426,21 @@ type GetComponentByIDParams struct {
 	TemplateID string
 }
 
-type GetComponentByIDRow struct {
-	ID           int64
-	TemplateID   string
-	Name         string
-	Category     string
-	Effects      []byte
-	HasLevels    bool
-	LevelScaling pgtype.Text
-	LevelRule    []byte
-	IsDeleted    bool
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
-}
-
-func (q *Queries) GetComponentByID(ctx context.Context, arg GetComponentByIDParams) (GetComponentByIDRow, error) {
+func (q *Queries) GetComponentByID(ctx context.Context, arg GetComponentByIDParams) (Component, error) {
 	row := q.db.QueryRow(ctx, getComponentByID, arg.ID, arg.TemplateID)
-	var i GetComponentByIDRow
+	var i Component
 	err := row.Scan(
 		&i.ID,
 		&i.TemplateID,
+		&i.ScopedNumber,
 		&i.Name,
+		&i.Description,
 		&i.Category,
 		&i.Effects,
 		&i.HasLevels,
 		&i.LevelScaling,
 		&i.LevelRule,
+		&i.Tiers,
 		&i.IsDeleted,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -410,7 +449,7 @@ func (q *Queries) GetComponentByID(ctx context.Context, arg GetComponentByIDPara
 }
 
 const getTemplateByID = `-- name: GetTemplateByID :one
-SELECT id, name, creator_user_id, created_at, updated_at, rules, is_private
+SELECT id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
 FROM templates
 WHERE id = $1 AND is_private = FALSE
 LIMIT 1
@@ -422,11 +461,14 @@ func (q *Queries) GetTemplateByID(ctx context.Context, id string) (Template, err
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
+		&i.Description,
 		&i.CreatorUserID,
+		&i.Stats,
+		&i.Rules,
+		&i.Components,
+		&i.IsPrivate,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Rules,
-		&i.IsPrivate,
 	)
 	return i, err
 }
@@ -535,8 +577,42 @@ func (q *Queries) GetUsersByIDs(ctx context.Context, dollar_1 []int32) ([]GetUse
 	return items, nil
 }
 
+const listBuildSlotsByBuild = `-- name: ListBuildSlotsByBuild :many
+SELECT build_id, category, position, component_id, level, tier
+FROM build_slots
+WHERE build_id = $1
+ORDER BY category, position
+`
+
+func (q *Queries) ListBuildSlotsByBuild(ctx context.Context, buildID string) ([]BuildSlot, error) {
+	rows, err := q.db.Query(ctx, listBuildSlotsByBuild, buildID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BuildSlot
+	for rows.Next() {
+		var i BuildSlot
+		if err := rows.Scan(
+			&i.BuildID,
+			&i.Category,
+			&i.Position,
+			&i.ComponentID,
+			&i.Level,
+			&i.Tier,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBuildsByTemplate = `-- name: ListBuildsByTemplate :many
-SELECT id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
+SELECT id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 FROM builds
 WHERE template_id = $1 AND is_private = FALSE
 ORDER BY created_at DESC
@@ -549,18 +625,33 @@ type ListBuildsByTemplateParams struct {
 	Offset     int32
 }
 
-func (q *Queries) ListBuildsByTemplate(ctx context.Context, arg ListBuildsByTemplateParams) ([]Build, error) {
+type ListBuildsByTemplateRow struct {
+	ID            string
+	Name          string
+	Description   pgtype.Text
+	CreatorUserID int32
+	TemplateID    string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	Tags          []string
+	VoteScore     int32
+	Components    []byte
+	IsPrivate     bool
+}
+
+func (q *Queries) ListBuildsByTemplate(ctx context.Context, arg ListBuildsByTemplateParams) ([]ListBuildsByTemplateRow, error) {
 	rows, err := q.db.Query(ctx, listBuildsByTemplate, arg.TemplateID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Build
+	var items []ListBuildsByTemplateRow
 	for rows.Next() {
-		var i Build
+		var i ListBuildsByTemplateRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
+			&i.Description,
 			&i.CreatorUserID,
 			&i.TemplateID,
 			&i.CreatedAt,
@@ -581,7 +672,7 @@ func (q *Queries) ListBuildsByTemplate(ctx context.Context, arg ListBuildsByTemp
 }
 
 const listBuildsByUser = `-- name: ListBuildsByUser :many
-SELECT id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
+SELECT id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 FROM builds
 WHERE creator_user_id = $1 AND is_private = FALSE
 ORDER BY created_at DESC
@@ -594,18 +685,33 @@ type ListBuildsByUserParams struct {
 	Offset        int32
 }
 
-func (q *Queries) ListBuildsByUser(ctx context.Context, arg ListBuildsByUserParams) ([]Build, error) {
+type ListBuildsByUserRow struct {
+	ID            string
+	Name          string
+	Description   pgtype.Text
+	CreatorUserID int32
+	TemplateID    string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	Tags          []string
+	VoteScore     int32
+	Components    []byte
+	IsPrivate     bool
+}
+
+func (q *Queries) ListBuildsByUser(ctx context.Context, arg ListBuildsByUserParams) ([]ListBuildsByUserRow, error) {
 	rows, err := q.db.Query(ctx, listBuildsByUser, arg.CreatorUserID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Build
+	var items []ListBuildsByUserRow
 	for rows.Next() {
-		var i Build
+		var i ListBuildsByUserRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
+			&i.Description,
 			&i.CreatorUserID,
 			&i.TemplateID,
 			&i.CreatedAt,
@@ -626,7 +732,7 @@ func (q *Queries) ListBuildsByUser(ctx context.Context, arg ListBuildsByUserPara
 }
 
 const listComponentsByTemplate = `-- name: ListComponentsByTemplate :many
-SELECT id, template_id, name, category, effects, has_levels, level_scaling, level_rule, is_deleted, created_at, updated_at
+SELECT id, template_id, scoped_number, name, description, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
 FROM components
 WHERE template_id = $1
 ORDER BY created_at DESC
@@ -639,38 +745,27 @@ type ListComponentsByTemplateParams struct {
 	Offset     int32
 }
 
-type ListComponentsByTemplateRow struct {
-	ID           int64
-	TemplateID   string
-	Name         string
-	Category     string
-	Effects      []byte
-	HasLevels    bool
-	LevelScaling pgtype.Text
-	LevelRule    []byte
-	IsDeleted    bool
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
-}
-
-func (q *Queries) ListComponentsByTemplate(ctx context.Context, arg ListComponentsByTemplateParams) ([]ListComponentsByTemplateRow, error) {
+func (q *Queries) ListComponentsByTemplate(ctx context.Context, arg ListComponentsByTemplateParams) ([]Component, error) {
 	rows, err := q.db.Query(ctx, listComponentsByTemplate, arg.TemplateID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListComponentsByTemplateRow
+	var items []Component
 	for rows.Next() {
-		var i ListComponentsByTemplateRow
+		var i Component
 		if err := rows.Scan(
 			&i.ID,
 			&i.TemplateID,
+			&i.ScopedNumber,
 			&i.Name,
+			&i.Description,
 			&i.Category,
 			&i.Effects,
 			&i.HasLevels,
 			&i.LevelScaling,
 			&i.LevelRule,
+			&i.Tiers,
 			&i.IsDeleted,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -685,8 +780,52 @@ func (q *Queries) ListComponentsByTemplate(ctx context.Context, arg ListComponen
 	return items, nil
 }
 
+const listPublicTemplates = `-- name: ListPublicTemplates :many
+SELECT id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
+FROM templates
+WHERE is_private = FALSE
+ORDER BY created_at DESC
+LIMIT $1 OFFSET $2
+`
+
+type ListPublicTemplatesParams struct {
+	Limit  int32
+	Offset int32
+}
+
+func (q *Queries) ListPublicTemplates(ctx context.Context, arg ListPublicTemplatesParams) ([]Template, error) {
+	rows, err := q.db.Query(ctx, listPublicTemplates, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Template
+	for rows.Next() {
+		var i Template
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.CreatorUserID,
+			&i.Stats,
+			&i.Rules,
+			&i.Components,
+			&i.IsPrivate,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTemplatesByUser = `-- name: ListTemplatesByUser :many
-SELECT id, name, creator_user_id, created_at, updated_at, rules, is_private
+SELECT id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
 FROM templates
 WHERE creator_user_id = $1 AND is_private = FALSE
 ORDER BY created_at DESC
@@ -711,11 +850,14 @@ func (q *Queries) ListTemplatesByUser(ctx context.Context, arg ListTemplatesByUs
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
+			&i.Description,
 			&i.CreatorUserID,
+			&i.Stats,
+			&i.Rules,
+			&i.Components,
+			&i.IsPrivate,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.Rules,
-			&i.IsPrivate,
 		); err != nil {
 			return nil, err
 		}
@@ -777,36 +919,54 @@ const updateBuild = `-- name: UpdateBuild :one
 UPDATE builds
 SET
     name = COALESCE($1, name),
-    updated_at = $2,
-    tags = COALESCE($3, tags),
-    components = COALESCE($4, components),
-    is_private = COALESCE($5, is_private)
-WHERE id = $6
-RETURNING id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
+    description = COALESCE($2, description),
+    updated_at = $3,
+    tags = COALESCE($4, tags),
+    components = COALESCE($5, components),
+    is_private = COALESCE($6, is_private)
+WHERE id = $7
+RETURNING id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 `
 
 type UpdateBuildParams struct {
-	Name       string
-	UpdatedAt  pgtype.Timestamptz
-	Tags       []string
-	Components []byte
-	IsPrivate  bool
-	ID         string
+	Name        string
+	Description pgtype.Text
+	UpdatedAt   pgtype.Timestamptz
+	Tags        []string
+	Components  []byte
+	IsPrivate   bool
+	ID          string
 }
 
-func (q *Queries) UpdateBuild(ctx context.Context, arg UpdateBuildParams) (Build, error) {
+type UpdateBuildRow struct {
+	ID            string
+	Name          string
+	Description   pgtype.Text
+	CreatorUserID int32
+	TemplateID    string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	Tags          []string
+	VoteScore     int32
+	Components    []byte
+	IsPrivate     bool
+}
+
+func (q *Queries) UpdateBuild(ctx context.Context, arg UpdateBuildParams) (UpdateBuildRow, error) {
 	row := q.db.QueryRow(ctx, updateBuild,
 		arg.Name,
+		arg.Description,
 		arg.UpdatedAt,
 		arg.Tags,
 		arg.Components,
 		arg.IsPrivate,
 		arg.ID,
 	)
-	var i Build
+	var i UpdateBuildRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
+		&i.Description,
 		&i.CreatorUserID,
 		&i.TemplateID,
 		&i.CreatedAt,
@@ -825,7 +985,7 @@ SET
     vote_score = $1,
     updated_at = $2
 WHERE id = $3
-RETURNING id, name, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
+RETURNING id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 `
 
 type UpdateBuildVoteScoreParams struct {
@@ -834,12 +994,27 @@ type UpdateBuildVoteScoreParams struct {
 	ID        string
 }
 
-func (q *Queries) UpdateBuildVoteScore(ctx context.Context, arg UpdateBuildVoteScoreParams) (Build, error) {
+type UpdateBuildVoteScoreRow struct {
+	ID            string
+	Name          string
+	Description   pgtype.Text
+	CreatorUserID int32
+	TemplateID    string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	Tags          []string
+	VoteScore     int32
+	Components    []byte
+	IsPrivate     bool
+}
+
+func (q *Queries) UpdateBuildVoteScore(ctx context.Context, arg UpdateBuildVoteScoreParams) (UpdateBuildVoteScoreRow, error) {
 	row := q.db.QueryRow(ctx, updateBuildVoteScore, arg.VoteScore, arg.UpdatedAt, arg.ID)
-	var i Build
+	var i UpdateBuildVoteScoreRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
+		&i.Description,
 		&i.CreatorUserID,
 		&i.TemplateID,
 		&i.CreatedAt,
@@ -856,67 +1031,62 @@ const updateComponent = `-- name: UpdateComponent :one
 UPDATE components
 SET
     name = COALESCE($1, name),
-    category = COALESCE($2, category),
-    effects = COALESCE($3, effects),
-    has_levels = COALESCE($4, has_levels),
-    level_scaling = COALESCE($5, level_scaling),
-    level_rule = COALESCE($6, level_rule),
-    is_deleted = COALESCE($7, is_deleted),
-    updated_at = $8
-WHERE id = $9 AND template_id = $10
-RETURNING id, template_id, name, category, effects, has_levels, level_scaling, level_rule, is_deleted, created_at, updated_at
+    description = COALESCE($2, description),
+    category = COALESCE($3, category),
+    effects = COALESCE($4, effects),
+    has_levels = COALESCE($5, has_levels),
+    level_scaling = COALESCE($6, level_scaling),
+    level_rule = COALESCE($7, level_rule),
+    tiers = COALESCE($8, tiers),
+    is_deleted = COALESCE($9, is_deleted),
+    updated_at = $10
+WHERE id = $11 AND template_id = $12
+RETURNING id, template_id, scoped_number, name, description, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
 `
 
 type UpdateComponentParams struct {
 	Name         string
+	Description  pgtype.Text
 	Category     string
 	Effects      []byte
 	HasLevels    bool
 	LevelScaling pgtype.Text
 	LevelRule    []byte
+	Tiers        []byte
 	IsDeleted    bool
 	UpdatedAt    pgtype.Timestamptz
 	ID           int64
 	TemplateID   string
 }
 
-type UpdateComponentRow struct {
-	ID           int64
-	TemplateID   string
-	Name         string
-	Category     string
-	Effects      []byte
-	HasLevels    bool
-	LevelScaling pgtype.Text
-	LevelRule    []byte
-	IsDeleted    bool
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
-}
-
-func (q *Queries) UpdateComponent(ctx context.Context, arg UpdateComponentParams) (UpdateComponentRow, error) {
+func (q *Queries) UpdateComponent(ctx context.Context, arg UpdateComponentParams) (Component, error) {
 	row := q.db.QueryRow(ctx, updateComponent,
 		arg.Name,
+		arg.Description,
 		arg.Category,
 		arg.Effects,
 		arg.HasLevels,
 		arg.LevelScaling,
 		arg.LevelRule,
+		arg.Tiers,
 		arg.IsDeleted,
 		arg.UpdatedAt,
 		arg.ID,
 		arg.TemplateID,
 	)
-	var i UpdateComponentRow
+	var i Component
 	err := row.Scan(
 		&i.ID,
 		&i.TemplateID,
+		&i.ScopedNumber,
 		&i.Name,
+		&i.Description,
 		&i.Category,
 		&i.Effects,
 		&i.HasLevels,
 		&i.LevelScaling,
 		&i.LevelRule,
+		&i.Tiers,
 		&i.IsDeleted,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -927,39 +1097,39 @@ func (q *Queries) UpdateComponent(ctx context.Context, arg UpdateComponentParams
 const updateTemplate = `-- name: UpdateTemplate :one
 UPDATE templates
 SET
-    name = COALESCE($1, name),
-    updated_at = $2,
-    rules = COALESCE($3, rules),
-    is_private = COALESCE($4, is_private)
-WHERE id = $5
-RETURNING id, name, creator_user_id, created_at, updated_at, rules, is_private
+    name = $1,
+    rules = $2,
+    updated_at = $3
+WHERE id = $4
+RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
 `
 
 type UpdateTemplateParams struct {
 	Name      string
-	UpdatedAt pgtype.Timestamptz
 	Rules     []byte
-	IsPrivate bool
+	UpdatedAt pgtype.Timestamptz
 	ID        string
 }
 
 func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) (Template, error) {
 	row := q.db.QueryRow(ctx, updateTemplate,
 		arg.Name,
-		arg.UpdatedAt,
 		arg.Rules,
-		arg.IsPrivate,
+		arg.UpdatedAt,
 		arg.ID,
 	)
 	var i Template
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
+		&i.Description,
 		&i.CreatorUserID,
+		&i.Stats,
+		&i.Rules,
+		&i.Components,
+		&i.IsPrivate,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Rules,
-		&i.IsPrivate,
 	)
 	return i, err
 }
@@ -1080,6 +1250,54 @@ func (q *Queries) UpdateUserUsername(ctx context.Context, arg UpdateUserUsername
 		&i.Password,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertBuildSlot = `-- name: UpsertBuildSlot :one
+INSERT INTO build_slots (
+    build_id,
+    category,
+    position,
+    component_id,
+    level,
+    tier
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+) ON CONFLICT (build_id, category, position)
+DO UPDATE SET
+    component_id = EXCLUDED.component_id,
+    level = EXCLUDED.level,
+    tier = EXCLUDED.tier
+RETURNING build_id, category, position, component_id, level, tier
+`
+
+type UpsertBuildSlotParams struct {
+	BuildID     string
+	Category    string
+	Position    int32
+	ComponentID pgtype.Int8
+	Level       pgtype.Int4
+	Tier        pgtype.Int4
+}
+
+func (q *Queries) UpsertBuildSlot(ctx context.Context, arg UpsertBuildSlotParams) (BuildSlot, error) {
+	row := q.db.QueryRow(ctx, upsertBuildSlot,
+		arg.BuildID,
+		arg.Category,
+		arg.Position,
+		arg.ComponentID,
+		arg.Level,
+		arg.Tier,
+	)
+	var i BuildSlot
+	err := row.Scan(
+		&i.BuildID,
+		&i.Category,
+		&i.Position,
+		&i.ComponentID,
+		&i.Level,
+		&i.Tier,
 	)
 	return i, err
 }

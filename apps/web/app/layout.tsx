@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import Header from './components/Header';
-import NotificationProvider from './components/NotificationProvider';
+import {NotificationProvider} from './components/NotificationProvider';
 import './globals.css';
 
 export const metadata = {

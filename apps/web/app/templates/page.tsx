@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { apiFetch } from '../lib/api';
 import { useNotification } from '../components/NotificationProvider';
 
@@ -10,20 +10,28 @@ export default function TemplatesPage() {
   const [templates, setTemplates] = useState<any[]>([]);
   const { notify } = useNotification();
 
-  const handleFetchTemplates = async () => {
-    if (!userId.trim()) {
-      notify('Enter a creator user ID to list templates.', 'error');
-      return;
-    }
-
+  const fetchTemplates = async (filterUserId?: string) => {
     try {
-      const data = await apiFetch(`/templates?user_id=${encodeURIComponent(userId.trim())}`);
+      const endpoint = filterUserId?.trim() 
+        ? `/templates?user_id=${encodeURIComponent(filterUserId.trim())}` 
+        : '/templates';
+      
+      const data = await apiFetch(endpoint);
       setTemplates(Array.isArray(data) ? data : []);
-      notify('Templates loaded.', 'success');
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Failed to load templates.', 'error');
       setTemplates([]);
     }
+  };
+
+  useEffect(() => {
+    fetchTemplates();
+  }, []);
+
+  const handleFilterSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    fetchTemplates(userId);
+    notify(userId ? 'Filtered templates loaded.' : 'Public templates loaded.', 'success');
   };
 
   return (
@@ -32,18 +40,38 @@ export default function TemplatesPage() {
         <div className="page-header">
           <div>
             <h1>Templates</h1>
-            <p>Filter templates or create a new template.</p>
+            <p>Explore public templates or filter by a creator user ID.</p>
           </div>
           <Link href="/templates/new" className="button secondary">
             New template
           </Link>
         </div>
+
+        <form onSubmit={handleFilterSubmit} style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+          <input
+            type="text"
+            placeholder="Filter by Creator User ID (Optional)"
+            value={userId}
+            onChange={(e) => setUserId(e.target.value)}
+            style={{ padding: '0.5rem', flex: 1 }}
+          />
+          <button type="submit" className="button">Filter</button>
+          {userId && (
+            <button 
+              type="button" 
+              className="button secondary" 
+              onClick={() => { setUserId(''); fetchTemplates(); }}
+            >
+              Clear
+            </button>
+          )}
+        </form>
       </section>
 
       <section className="card">
         <h2>Template results</h2>
         {templates.length === 0 ? (
-          <p>No templates uploaded yet.</p>
+          <p>No templates found.</p>
         ) : (
           <div className="result-list">
             {templates.map((template) => (

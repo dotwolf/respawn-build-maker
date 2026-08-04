@@ -11,21 +11,22 @@ import (
 type Build struct {
 	ID            string
 	Name          string
+	Description   pgtype.Text
 	CreatorUserID int32
 	TemplateID    string
-	CreatedAt     pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
 	Tags          []string
 	VoteScore     int32
 	Components    []byte
 	IsPrivate     bool
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
 }
 
 type BuildSlot struct {
 	BuildID     string
 	Category    string
 	Position    int32
-	ComponentID pgtype.Text
+	ComponentID pgtype.Int8
 	Level       pgtype.Int4
 	Tier        pgtype.Int4
 }
@@ -42,11 +43,13 @@ type Component struct {
 	TemplateID   string
 	ScopedNumber int32
 	Name         string
+	Description  pgtype.Text
 	Category     string
 	Effects      []byte
 	HasLevels    bool
 	LevelScaling pgtype.Text
 	LevelRule    []byte
+	Tiers        []byte
 	IsDeleted    bool
 	CreatedAt    pgtype.Timestamptz
 	UpdatedAt    pgtype.Timestamptz
@@ -55,11 +58,14 @@ type Component struct {
 type Template struct {
 	ID            string
 	Name          string
+	Description   pgtype.Text
 	CreatorUserID int32
+	Stats         []byte
+	Rules         []byte
+	Components    []byte
+	IsPrivate     bool
 	CreatedAt     pgtype.Timestamptz
 	UpdatedAt     pgtype.Timestamptz
-	Rules         []byte
-	IsPrivate     bool
 }
 
 type User struct {

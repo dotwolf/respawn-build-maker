@@ -21,8 +21,10 @@ type AuthServiceInterface interface {
 
 type TemplateServiceInterface interface {
 	CreateTemplate(ctx context.Context, req *dto.TemplateCreateRequest) (*dto.TemplateResponse, error)
+	CreateTemplateWithComponents(ctx context.Context, req *dto.TemplateCreateRequest) (*dto.TemplateResponse, error)
 	GetTemplateByID(ctx context.Context, id string) (*dto.TemplateResponse, error)
 	ListTemplatesByUser(ctx context.Context, creatorUserID int32, limit int32, offset int32) ([]*dto.TemplateResponse, error)
+	ListPublicTemplates(ctx context.Context, limit int32, offset int32) ([]*dto.TemplateResponse, error)
 }
 
 type BuildServiceInterface interface {

@@ -71,7 +71,7 @@ func (s *BuildService) CreateBuild(ctx context.Context, templateID string, req *
 		return nil, err
 	}
 
-	return dto.ToBuildResponse(&build), nil
+	return dto.ToBuildResponseFromCreate(&build), nil
 }
 
 func (s *BuildService) GetBuildByID(ctx context.Context, templateID, id string) (*dto.BuildResponse, error) {
@@ -86,7 +86,7 @@ func (s *BuildService) GetBuildByID(ctx context.Context, templateID, id string) 
 	if err := validateBuildTemplateAccess(build.TemplateID, templateID); err != nil {
 		return nil, err
 	}
-	return dto.ToBuildResponse(&build), nil
+	return dto.ToBuildResponseFromGet(&build), nil
 }
 
 func (s *BuildService) ListBuildsByUser(ctx context.Context, creatorUserID int32, limit int32, offset int32) ([]*dto.BuildResponse, error) {
@@ -109,7 +109,7 @@ func (s *BuildService) ListBuildsByUser(ctx context.Context, creatorUserID int32
 		return nil, err
 	}
 
-	return dto.ToBuildResponses(builds), nil
+	return dto.ToBuildResponsesFromListByUser(builds), nil
 }
 
 func (s *BuildService) ListBuildsByTemplate(ctx context.Context, templateID string, limit int32, offset int32) ([]*dto.BuildResponse, error) {
@@ -132,7 +132,7 @@ func (s *BuildService) ListBuildsByTemplate(ctx context.Context, templateID stri
 		return nil, err
 	}
 
-	return dto.ToBuildResponses(builds), nil
+	return dto.ToBuildResponsesFromListByTemplate(builds), nil
 }
 
 func (s *BuildService) UpdateBuild(ctx context.Context, req *dto.BuildUpdateRequest) (*dto.BuildResponse, error) {
@@ -159,7 +159,7 @@ func (s *BuildService) UpdateBuild(ctx context.Context, req *dto.BuildUpdateRequ
 		return nil, err
 	}
 
-	return dto.ToBuildResponse(&build), nil
+	return dto.ToBuildResponseFromUpdate(&build), nil
 }
 
 func (s *BuildService) DeleteBuild(ctx context.Context, id string) error {

@@ -50,10 +50,102 @@ func ToBuildResponse(build *repository.Build) *BuildResponse {
 	}
 }
 
+func ToBuildResponseFromCreate(build *repository.CreateBuildRow) *BuildResponse {
+	if build == nil {
+		return nil
+	}
+
+	return &BuildResponse{
+		ID:            build.ID,
+		Name:          build.Name,
+		CreatorUserID: build.CreatorUserID,
+		TemplateID:    build.TemplateID,
+		CreatedAt:     build.CreatedAt.Time,
+		UpdatedAt:     build.UpdatedAt.Time,
+		Tags:          build.Tags,
+		VoteScore:     build.VoteScore,
+		Components:    json.RawMessage(build.Components),
+	}
+}
+
+func ToBuildResponseFromGet(build *repository.GetBuildByIDRow) *BuildResponse {
+	if build == nil {
+		return nil
+	}
+
+	return &BuildResponse{
+		ID:            build.ID,
+		Name:          build.Name,
+		CreatorUserID: build.CreatorUserID,
+		TemplateID:    build.TemplateID,
+		CreatedAt:     build.CreatedAt.Time,
+		UpdatedAt:     build.UpdatedAt.Time,
+		Tags:          build.Tags,
+		VoteScore:     build.VoteScore,
+		Components:    json.RawMessage(build.Components),
+	}
+}
+
+func ToBuildResponseFromUpdate(build *repository.UpdateBuildRow) *BuildResponse {
+	if build == nil {
+		return nil
+	}
+
+	return &BuildResponse{
+		ID:            build.ID,
+		Name:          build.Name,
+		CreatorUserID: build.CreatorUserID,
+		TemplateID:    build.TemplateID,
+		CreatedAt:     build.CreatedAt.Time,
+		UpdatedAt:     build.UpdatedAt.Time,
+		Tags:          build.Tags,
+		VoteScore:     build.VoteScore,
+		Components:    json.RawMessage(build.Components),
+	}
+}
+
 func ToBuildResponses(builds []repository.Build) []*BuildResponse {
 	result := make([]*BuildResponse, 0, len(builds))
 	for i := range builds {
 		result = append(result, ToBuildResponse(&builds[i]))
+	}
+	return result
+}
+
+func ToBuildResponsesFromListByUser(builds []repository.ListBuildsByUserRow) []*BuildResponse {
+	result := make([]*BuildResponse, 0, len(builds))
+	for i := range builds {
+		b := builds[i]
+		result = append(result, &BuildResponse{
+			ID:            b.ID,
+			Name:          b.Name,
+			CreatorUserID: b.CreatorUserID,
+			TemplateID:    b.TemplateID,
+			CreatedAt:     b.CreatedAt.Time,
+			UpdatedAt:     b.UpdatedAt.Time,
+			Tags:          b.Tags,
+			VoteScore:     b.VoteScore,
+			Components:    json.RawMessage(b.Components),
+		})
+	}
+	return result
+}
+
+func ToBuildResponsesFromListByTemplate(builds []repository.ListBuildsByTemplateRow) []*BuildResponse {
+	result := make([]*BuildResponse, len(builds))
+	for i := range builds {
+		b := builds[i]
+		result = append(result, &BuildResponse{
+			ID:            b.ID,
+			Name:          b.Name,
+			CreatorUserID: b.CreatorUserID,
+			TemplateID:    b.TemplateID,
+			CreatedAt:     b.CreatedAt.Time,
+			UpdatedAt:     b.UpdatedAt.Time,
+			Tags:          b.Tags,
+			VoteScore:     b.VoteScore,
+			Components:    json.RawMessage(b.Components),
+		})
 	}
 	return result
 }

@@ -10,8 +10,8 @@ import (
 )
 
 // CreateTemplate godoc
-// @Summary      Create a new template
-// @Description  Creates a new template with a component pool and rules
+// @Summary      Create a new template with components
+// @Description  Creates a new template along with its component pool atomically inside a transaction
 // @Tags         templates
 // @Accept       json
 // @Produce      json
@@ -24,11 +24,11 @@ func CreateTemplate(templateService services.TemplateServiceInterface) gin.Handl
 	return func(c *gin.Context) {
 		var req dto.TemplateCreateRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
 			return
 		}
 
-		template, err := templateService.CreateTemplate(c.Request.Context(), &req)
+		template, err := templateService.CreateTemplateWithComponents(c.Request.Context(), &req)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -106,6 +106,59 @@ func ListTemplatesByUser(templateService services.TemplateServiceInterface) gin.
 		}
 
 		templates, err := templateService.ListTemplatesByUser(c.Request.Context(), int32(userID), int32(limit), int32(offset))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if len(templates) == 0 {
+			c.JSON(http.StatusOK, []dto.TemplateResponse{})
+			return
+		}
+		c.JSON(http.StatusOK, templates)
+	}
+}
+
+// ListTemplates godoc
+// @Summary      List templates
+// @Description  List public templates or filter by user ID with pagination
+// @Tags         templates
+// @Accept       json
+// @Produce      json
+// @Param        user_id query int false "Creator user ID filter"
+// @Param        limit query int false "Page size"
+// @Param        offset query int false "Page offset"
+// @Success      200  {array}   dto.TemplateResponse
+// @Failure      400  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /templates [get]
+func ListTemplates(templateService services.TemplateServiceInterface) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		limitStr := c.DefaultQuery("limit", "20")
+		offsetStr := c.DefaultQuery("offset", "0")
+
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil || limit < 1 {
+			limit = 20
+		}
+		offset, err := strconv.Atoi(offsetStr)
+		if err != nil || offset < 0 {
+			offset = 0
+		}
+
+		userIDStr := c.Query("user_id")
+		var templates []*dto.TemplateResponse
+
+		if userIDStr != "" {
+			userID, err := strconv.Atoi(userIDStr)
+			if err != nil || userID <= 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user_id"})
+				return
+			}
+			templates, err = templateService.ListTemplatesByUser(c.Request.Context(), int32(userID), int32(limit), int32(offset))
+		} else {
+			templates, err = templateService.ListPublicTemplates(c.Request.Context(), int32(limit), int32(offset))
+		}
+
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
