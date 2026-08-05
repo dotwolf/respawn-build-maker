@@ -29,6 +29,7 @@ CREATE TABLE components (
     scoped_number INTEGER NOT NULL, -- Display-only index per template
     name VARCHAR(255) NOT NULL,
     description TEXT,
+    sub_category VARCHAR(255),
     category VARCHAR(255) NOT NULL,
     effects JSONB NOT NULL DEFAULT '[]'::jsonb,
     has_levels BOOLEAN NOT NULL DEFAULT FALSE,

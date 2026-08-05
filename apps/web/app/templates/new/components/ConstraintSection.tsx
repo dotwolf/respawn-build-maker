@@ -8,6 +8,7 @@ interface ConstraintSectionProps {
   setConstraints: (constraints: Constraint[]) => void;
   availableCategories: string[];
   slotNames: string[];
+  readOnly?: boolean;
 }
 
 export default function ConstraintSection({
@@ -15,6 +16,7 @@ export default function ConstraintSection({
   setConstraints,
   availableCategories,
   slotNames,
+  readOnly = false,
 }: ConstraintSectionProps) {
   const [constraintType, setConstraintType] = useState<Constraint['type']>('seal');
   const [sealCategory, setSealCategory] = useState('');
@@ -116,19 +118,19 @@ export default function ConstraintSection({
           {constraints.map((constraint, idx) => (
             <div key={idx} className="constraint-item">
               <p>{renderConstraintDisplay(constraint)}</p>
-              <button
+              {!readOnly && <button
                 type="button"
                 onClick={() => handleDeleteConstraint(idx)}
                 className="secondary small"
               >
                 Delete
-              </button>
+              </button>}
             </div>
           ))}
         </div>
       )}
 
-      <div className="add-constraint-form">
+      {!readOnly && <div className="add-constraint-form">
         <h4>Add Constraint</h4>
 
         <label>
@@ -266,7 +268,7 @@ export default function ConstraintSection({
         <button type="button" onClick={handleAddConstraint} className="secondary">
           Add constraint
         </button>
-      </div>
+      </div>}
     </section>
   );
 }

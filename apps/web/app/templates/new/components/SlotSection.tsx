@@ -1,14 +1,17 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import type { Slot } from '../page';
+import { useMemo, useRef, useState } from 'react';
+import type { Slot, SlotRule } from '../page';
 import { useNotification } from '../../../components/NotificationProvider';
+import FormulaHelp from '../../../components/FormulaHelp';
+import { getSlotRules } from '../../../lib/buildMath';
 
 interface SlotSectionProps {
   slots: Slot[];
   setSlots: (slots: Slot[]) => void;
   selectedSlotIndex: number | null;
   setSelectedSlotIndex: (index: number | null) => void;
+  readOnly?: boolean;
 }
 
 /**
@@ -19,7 +22,7 @@ interface SlotSectionProps {
  */
 function resolveCommit(tags: string[], idx: number, value: string): string[] {
   // Enforce 15-character limit and trim whitespace
-  const trimmed = value.trim().slice(0, 15);
+  const trimmed = value.trim().slice(0, 20);
   const isNewTagSlot = idx === tags.length;
 
   if (isNewTagSlot) {
@@ -40,13 +43,40 @@ function resolveCommit(tags: string[], idx: number, value: string): string[] {
   return tags.filter((_, i) => i !== idx);
 }
 
+/**
+ * Builds a name for a duplicated slot. If the name ends in a number that
+ * number is incremented ("Weapon 1" -> "Weapon 2"); otherwise " 2" is
+ * appended ("Weapon" -> "Weapon 2"). Keeps incrementing until it no longer
+ * collides with an existing slot name.
+ */
+function getDuplicateName(name: string, slots: Slot[]): string {
+  const existing = new Set(slots.map((s) => s.slot_name.trim()));
+
+  const bump = (current: string): string => {
+    const match = current.match(/(\d+)$/);
+    if (match) {
+      return current.slice(0, -match[1].length) + String(parseInt(match[1], 10) + 1);
+    }
+    return `${current} 2`;
+  };
+
+  let nextName = bump(name.trim());
+  while (existing.has(nextName)) {
+    nextName = bump(nextName);
+  }
+  return nextName;
+}
+
 function EditableTags({
   tags,
   onChange,
+  readOnly = false,
 }: {
   tags: string[];
   onChange: (tags: string[]) => void;
+  readOnly?: boolean;
 }) {
+  if (readOnly) return <div className="tag-editor">{tags.map((tag) => <span key={tag} className="tag">{tag}</span>)}</div>;
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draftValue, setDraftValue] = useState('');
   const cancelRef = useRef(false);
@@ -103,7 +133,7 @@ function EditableTags({
               type="text"
               className="tag tag-input"
               autoFocus
-              maxLength={15}
+              maxLength={20}
               value={draftValue}
               onChange={(e) => setDraftValue(e.target.value)}
               onFocus={(e) => e.currentTarget.select()}
@@ -188,11 +218,14 @@ export default function SlotSection({
   setSlots,
   selectedSlotIndex,
   setSelectedSlotIndex,
+  readOnly = false,
 }: SlotSectionProps) {
   const { notify } = useNotification();
 
   const [newSlotName, setNewSlotName] = useState('');
   const [newSlotCategories, setNewSlotCategories] = useState<string[]>([]);
+  const [editingClassName, setEditingClassName] = useState<string | null>(null);
+  const [classDraftName, setClassDraftName] = useState('');
 
   const selectedSlot = selectedSlotIndex !== null ? slots[selectedSlotIndex] : null;
 
@@ -214,9 +247,13 @@ export default function SlotSection({
       return;
     }
 
-    const newSlot: Slot = {
+  const newSlot: Slot = {
       slot_name: trimmedName,
       accepts: newSlotCategories,
+      position: {
+        x: 32 + (slots.length % 3) * 124,
+        y: 32 + Math.floor(slots.length / 3) * 124,
+      },
     };
 
     const nextSlots = [...slots, newSlot];
@@ -270,6 +307,236 @@ export default function SlotSection({
     notify(`Deleted slot "${deletedName}".`, 'success');
   };
 
+  const handleDuplicateSlot = () => {
+    if (selectedSlotIndex === null || !selectedSlot) return;
+
+    const nextName = getDuplicateName(selectedSlot.slot_name, slots);
+    const newSlot: Slot = {
+      ...selectedSlot,
+      slot_name: nextName,
+      position: {
+        x: (selectedSlot.position?.x ?? 32) + 124,
+        y: selectedSlot.position?.y ?? 32,
+      },
+    };
+
+    const nextSlots = [...slots];
+    nextSlots.splice(selectedSlotIndex + 1, 0, newSlot);
+    setSlots(nextSlots);
+    setSelectedSlotIndex(selectedSlotIndex + 1);
+    notify(`Duplicated slot "${selectedSlot.slot_name}" as "${nextName}".`, 'success');
+  };
+
+  const formulaRows = useMemo(() => {
+    const s = selectedSlot?.stats;
+    if (!s || !getSlotRules(s).includes('formula')) return [];
+    return (s.stats || []).map((stat) => ({
+      stat,
+      formula: s.formulas?.[stat] || '',
+    }));
+  }, [selectedSlot]);
+
+  const updateSlotStats = (patch: Partial<NonNullable<Slot['stats']>>) => {
+    const current = selectedSlot?.stats;
+    updateSelectedSlot({
+      stats: { ...(current || { rules: ['formula'], stats: [] }), ...patch },
+    });
+  };
+
+  const toggleRule = (rule: SlotRule) => {
+    const current = getSlotRules(selectedSlot?.stats);
+    const next = current.includes(rule)
+      ? current.filter((r) => r !== rule)
+      : [...current, rule];
+
+    if (next.length === 0) {
+      updateSelectedSlot({ stats: undefined });
+      return;
+    }
+
+    const existing = selectedSlot?.stats;
+    updateSelectedSlot({
+      stats: {
+        rule: undefined,
+        rules: next,
+        stats: existing?.stats || [],
+        points_per_level: existing?.points_per_level ?? 1,
+        min_level:
+          existing?.min_level ??
+          (next.includes('stat_points') || next.includes('class_points') ? 1 : 0),
+        max_level: existing?.max_level,
+        formulas: existing?.formulas,
+        classes: existing?.classes,
+        class_formulas: existing?.class_formulas,
+      },
+    });
+  };
+
+  const updateFormulaRow = (index: number, patch: { stat?: string; formula?: string }) => {
+    const s = selectedSlot?.stats;
+    if (!s || !getSlotRules(s).includes('formula')) return;
+
+    const stats = [...s.stats];
+    const formulas = { ...(s.formulas || {}) };
+    const oldKey = stats[index] || '';
+    const oldFormula = formulas[oldKey] || '';
+    let newKey = oldKey;
+
+    if (patch.stat !== undefined) {
+      const trimmed = patch.stat.trim();
+      if (trimmed) {
+        stats[index] = trimmed;
+        delete formulas[oldKey];
+        formulas[trimmed] = oldFormula;
+        newKey = trimmed;
+      }
+    }
+    if (patch.formula !== undefined) formulas[newKey] = patch.formula;
+
+    updateSlotStats({ stats, formulas });
+  };
+
+  const addFormulaRow = () => {
+    const s = selectedSlot?.stats;
+    if (!s || !getSlotRules(s).includes('formula')) return;
+    updateSlotStats({ stats: [...s.stats, ''], formulas: { ...(s.formulas || {}), '': '' } });
+  };
+
+  const removeFormulaRow = (index: number) => {
+    const s = selectedSlot?.stats;
+    if (!s || !getSlotRules(s).includes('formula')) return;
+    const stats = [...s.stats];
+    const formulas = { ...(s.formulas || {}) };
+    delete formulas[stats[index] || ''];
+    stats.splice(index, 1);
+    updateSlotStats({ stats, formulas });
+  };
+
+  const handleClassesChange = (nextClasses: string[]) => {
+    const s = selectedSlot?.stats;
+    if (!s || !getSlotRules(s).includes('class_points')) return;
+    const classFormulas = { ...(s.class_formulas || {}) };
+
+    (s.classes || []).forEach((name, index) => {
+      if (nextClasses[index] && nextClasses[index] !== name) {
+        const renamed = nextClasses[index];
+        classFormulas[renamed] = classFormulas[name];
+        delete classFormulas[name];
+      }
+    });
+
+    const nextSet = new Set(nextClasses);
+    Object.keys(classFormulas).forEach((key) => {
+      if (!nextSet.has(key)) delete classFormulas[key];
+    });
+
+    updateSlotStats({ classes: nextClasses, class_formulas: classFormulas });
+  };
+
+  const getDuplicateClassName = (name: string): string => {
+    const existing = new Set((selectedSlot?.stats?.classes || []).map((n) => n));
+    const bump = (current: string): string => {
+      const match = current.match(/(\d+)$/);
+      if (match) {
+        return current.slice(0, -match[1].length) + String(parseInt(match[1], 10) + 1);
+      }
+      return `${current} 2`;
+    };
+    let nextName = bump(name);
+    while (existing.has(nextName)) {
+      nextName = bump(nextName);
+    }
+    return nextName;
+  };
+
+  const duplicateClass = (className: string) => {
+    const s = selectedSlot?.stats;
+    if (!s || !getSlotRules(s).includes('class_points')) return;
+    const newName = getDuplicateClassName(className);
+    const classes = [...(s.classes || []), newName];
+    const classFormulas = { ...(s.class_formulas || {}) };
+    classFormulas[newName] = { ...(classFormulas[className] || {}) };
+    updateSlotStats({ classes, class_formulas: classFormulas });
+    notify(`Duplicated class "${className}" as "${newName}".`, 'success');
+  };
+
+  const startClassRename = (className: string) => {
+    setEditingClassName(className);
+    setClassDraftName(className);
+  };
+
+  const commitClassRename = () => {
+    if (editingClassName === null) return;
+    const oldName = editingClassName;
+    const s = selectedSlot?.stats;
+    const trimmed = classDraftName.trim();
+    setEditingClassName(null);
+    setClassDraftName('');
+
+    if (!s || !getSlotRules(s).includes('class_points')) return;
+    if (!trimmed || trimmed === oldName) return;
+    if ((s.classes || []).includes(trimmed)) {
+      notify(`A class named "${trimmed}" already exists.`, 'error');
+      return;
+    }
+
+    const classes = (s.classes || []).map((n) => (n === oldName ? trimmed : n));
+    const classFormulas = { ...(s.class_formulas || {}) };
+    classFormulas[trimmed] = classFormulas[oldName];
+    delete classFormulas[oldName];
+    updateSlotStats({ classes, class_formulas: classFormulas });
+  };
+
+  const updateClassFormulaRow = (
+    className: string,
+    index: number,
+    patch: { stat?: string; formula?: string }
+  ) => {
+    const s = selectedSlot?.stats;
+    if (!s || !getSlotRules(s).includes('class_points')) return;
+    const classFormulas = { ...(s.class_formulas || {}) };
+    const current = classFormulas[className] || {};
+    const entries = Object.entries(current);
+    const [oldStat, oldFormula] = entries[index] || ['', ''];
+    const nextFormulas = { ...current };
+    let newStat = oldStat;
+
+    if (patch.stat !== undefined) {
+      const trimmed = patch.stat.trim();
+      if (trimmed) {
+        delete nextFormulas[oldStat];
+        nextFormulas[trimmed] = oldFormula;
+        newStat = trimmed;
+      }
+    }
+    if (patch.formula !== undefined) nextFormulas[newStat] = patch.formula;
+
+    classFormulas[className] = nextFormulas;
+    updateSlotStats({ class_formulas: classFormulas });
+  };
+
+  const addClassFormulaRow = (className: string) => {
+    const s = selectedSlot?.stats;
+    if (!s || !getSlotRules(s).includes('class_points')) return;
+    const classFormulas = { ...(s.class_formulas || {}) };
+    classFormulas[className] = { ...(classFormulas[className] || {}), '': '' };
+    updateSlotStats({ class_formulas: classFormulas });
+  };
+
+  const removeClassFormulaRow = (className: string, index: number) => {
+    const s = selectedSlot?.stats;
+    if (!s || !getSlotRules(s).includes('class_points')) return;
+    const classFormulas = { ...(s.class_formulas || {}) };
+    const entries = Object.entries(classFormulas[className] || {});
+    const [stat] = entries[index] || ['', ''];
+    const nextFormulas = { ...(classFormulas[className] || {}) };
+    delete nextFormulas[stat];
+    classFormulas[className] = nextFormulas;
+    updateSlotStats({ class_formulas: classFormulas });
+  };
+
+  const activeRules = getSlotRules(selectedSlot?.stats);
+
   return (
     <section className="rules-section">
       <div className="panel-header">
@@ -280,7 +547,7 @@ export default function SlotSection({
       </div>
 
       <div className="slot-editor-shell">
-        <div className="add-slot-form">
+        {!readOnly && <div className="add-slot-form">
           <h4>Add Slot</h4>
           <label>
             Slot name <span style={{ color: 'red' }}>*</span>
@@ -300,7 +567,7 @@ export default function SlotSection({
           <button type="button" onClick={handleAddSlot} className="secondary">
             Add slot
           </button>
-        </div>
+        </div>}
 
         {selectedSlot ? (
           <div className="selected-slot-card">
@@ -309,9 +576,14 @@ export default function SlotSection({
                 <p className="eyebrow">Selected Slot</p>
                 <h4>{selectedSlot.slot_name}</h4>
               </div>
-              <button type="button" onClick={handleDeleteSlot} className="delete small">
-                Delete Slot
-              </button>
+              {!readOnly && <div className="selected-slot-actions">
+                <button type="button" onClick={handleDuplicateSlot} className="secondary small">
+                  Duplicate
+                </button>
+                <button type="button" onClick={handleDeleteSlot} className="delete small">
+                  Delete Slot
+                </button>
+              </div>}
             </div>
 
             <label>
@@ -319,7 +591,19 @@ export default function SlotSection({
               <input
                 type="text"
                 value={selectedSlot.slot_name}
+                readOnly={readOnly}
                 onChange={(e) => updateSelectedSlot({ slot_name: e.target.value })}
+              />
+            </label>
+
+            <label>
+              Shown Name
+              <input
+                type="text"
+                value={selectedSlot.shown_name || ''}
+                readOnly={readOnly}
+                placeholder="Optional"
+                onChange={(e) => updateSelectedSlot({ shown_name: e.target.value.trim() || undefined })}
               />
             </label>
 
@@ -328,8 +612,363 @@ export default function SlotSection({
               <EditableTags
                 tags={selectedSlot.accepts}
                 onChange={(categories) => updateSelectedSlot({ accepts: categories })}
+                readOnly={readOnly}
               />
             </label>
+
+            {!readOnly && (
+              <div className="slot-appearance">
+                <div className="slot-appearance-header">
+                  <div>
+                    <p className="eyebrow">Appearance</p>
+                    <span className="hint-label">Customize how this slot looks on the canvas.</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary small"
+                    onClick={() =>
+                      updateSelectedSlot({
+                        color: undefined,
+                        textColor: undefined,
+                        size: undefined,
+                        transparency: undefined,
+                      })
+                    }
+                  >
+                    Reset Appearance
+                  </button>
+                </div>
+
+                <div className="slot-appearance-field">
+                  <label>Color</label>
+                  <div className="slot-color-picker">
+                    <input
+                      type="color"
+                      value={selectedSlot.color || '#2a2a26'}
+                      onChange={(e) => updateSelectedSlot({ color: e.target.value })}
+                      aria-label="Slot color"
+                    />
+                    <input
+                      type="text"
+                      value={selectedSlot.color || ''}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (!raw) {
+                          updateSelectedSlot({ color: undefined });
+                        } else if (/^#[0-9a-fA-F]{6}$/.test(raw)) {
+                          updateSelectedSlot({ color: raw });
+                        }
+                      }}
+                      placeholder="#hex"
+                    />
+                  </div>
+                </div>
+
+                <div className="slot-appearance-field">
+                  <label>Text Color</label>
+                  <div className="slot-color-picker">
+                    <input
+                      type="color"
+                      value={selectedSlot.textColor || '#e6e4d9'}
+                      onChange={(e) => updateSelectedSlot({ textColor: e.target.value })}
+                      aria-label="Slot text color"
+                    />
+                    <input
+                      type="text"
+                      value={selectedSlot.textColor || ''}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (!raw) {
+                          updateSelectedSlot({ textColor: undefined });
+                        } else if (/^#[0-9a-fA-F]{6}$/.test(raw)) {
+                          updateSelectedSlot({ textColor: raw });
+                        }
+                      }}
+                      placeholder="#hex"
+                    />
+                  </div>
+                </div>
+
+                <div className="slot-appearance-field">
+                  <label>Size <span className="hint-label">{selectedSlot.size ?? 96}px</span></label>
+                  <div className="slot-range-row">
+                    <input
+                      type="range"
+                      min="48"
+                      max="192"
+                      step="4"
+                      value={selectedSlot.size ?? 96}
+                      onChange={(e) => updateSelectedSlot({ size: parseInt(e.target.value, 10) })}
+                      aria-label="Slot size"
+                    />
+                    <input
+                      type="number"
+                      min="48"
+                      max="192"
+                      step="4"
+                      value={selectedSlot.size ?? 96}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        updateSelectedSlot({
+                          size: Number.isNaN(val) ? undefined : Math.min(192, Math.max(48, val)),
+                        });
+                      }}
+                      aria-label="Slot size (px)"
+                    />
+                  </div>
+                </div>
+
+                <div className="slot-appearance-field">
+                  <label>Transparency <span className="hint-label">{selectedSlot.transparency ?? 100}%</span></label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={selectedSlot.transparency ?? 100}
+                    onChange={(e) => updateSelectedSlot({ transparency: parseInt(e.target.value, 10) })}
+                    aria-label="Slot transparency"
+                  />
+                </div>
+              </div>
+            )}
+
+            {!readOnly && (
+              <div className="slot-appearance slot-stats-editor">
+                <div className="slot-appearance-header">
+                  <div>
+                    <p className="eyebrow">Stats <FormulaHelp /></p>
+                    <span className="hint-label">Optional — define stats this slot grants in builds.</span>
+                  </div>
+                </div>
+
+                <div className="slot-appearance-field">
+                  <label>Rules</label>
+                  <div className="slot-rule-checks">
+                    {(['stat_points', 'formula', 'class_points'] as SlotRule[]).map((rule) => (
+                      <label key={rule} className="slot-rule-check">
+                        <input
+                          type="checkbox"
+                          checked={activeRules.includes(rule)}
+                          onChange={() => toggleRule(rule)}
+                        />
+                        {rule === 'stat_points' ? 'Stat Points' : rule === 'formula' ? 'Formula' : 'Class Points'}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {(activeRules.includes('stat_points') || activeRules.includes('class_points')) && (
+                  <div className="slot-appearance-field">
+                    <label>Points per Level</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={selectedSlot.stats?.points_per_level ?? 1}
+                      onChange={(e) =>
+                        updateSlotStats({ points_per_level: Math.max(1, parseInt(e.target.value, 10) || 1) })
+                      }
+                    />
+                  </div>
+                )}
+
+                {activeRules.length > 0 && (
+                  <div className="slot-level-range-fields">
+                    <div className="slot-appearance-field">
+                      <label>Min Level</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={selectedSlot.stats?.min_level ?? (activeRules.includes('stat_points') || activeRules.includes('class_points') ? 1 : 0)}
+                        onChange={(e) =>
+                          updateSlotStats({
+                            min_level: Math.max(0, parseInt(e.target.value, 10) || 0),
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="slot-appearance-field">
+                      <label>Max Level</label>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="No limit"
+                        value={selectedSlot.stats?.max_level ?? ''}
+                        onChange={(e) =>
+                          updateSlotStats({
+                            max_level: e.target.value === ''
+                              ? undefined
+                              : Math.max(0, parseInt(e.target.value, 10) || 0),
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {activeRules.includes('stat_points') && (
+                  <>
+                    <div className="slot-appearance-field">
+                      <label>Distributable Stats</label>
+                      <EditableTags
+                        tags={selectedSlot.stats?.stats || []}
+                        onChange={(stats) => updateSlotStats({ stats })}
+                      />
+                    </div>
+                  </>
+                )}
+
+                {activeRules.includes('formula') && (
+                  <>
+                    <div className="slot-appearance-field">
+                      <label>Stat Formulas <span className="hint-label">use <code>level</code> in expressions</span></label>
+                      <div className="slot-stats-formulas">
+                        {formulaRows.map((row, index) => (
+                          <div key={index} className="slot-stats-formula-row">
+                            <input
+                              type="text"
+                              value={row.stat}
+                              placeholder="Stat name"
+                              onChange={(e) => updateFormulaRow(index, { stat: e.target.value })}
+                            />
+                            <input
+                              type="text"
+                              value={row.formula}
+                              placeholder="e.g. level * 2"
+                              onChange={(e) => updateFormulaRow(index, { formula: e.target.value })}
+                            />
+                            <button
+                              type="button"
+                              className="tag-remove"
+                              onClick={() => removeFormulaRow(index)}
+                              aria-label={`Remove formula for ${row.stat || 'new stat'}`}
+                              title="Remove"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                        <button type="button" className="secondary small" onClick={addFormulaRow}>
+                          + Add Stat Formula
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {activeRules.includes('class_points') &&
+                  (() => {
+                    const statsDef = selectedSlot.stats;
+                    if (!statsDef) return null;
+                    const classNames = statsDef.classes || [];
+                    return (
+                      <>
+                        <div className="slot-appearance-field">
+                          <label>Classes</label>
+                          <EditableTags tags={classNames} onChange={handleClassesChange} />
+                          <span className="hint-label">
+                            Each class's formulas can use <code>points</code> for the class levels allocated to it.
+                          </span>
+                        </div>
+                        {classNames.length === 0 ? (
+                          <div className="hint-label">Add classes above, then define each class's stat formulas below.</div>
+                        ) : (
+                          classNames.map((className) => (
+                            <div key={className} className="slot-class-block">
+                              <div className="slot-class-header">
+                                {editingClassName === className ? (
+                                  <input
+                                    type="text"
+                                    value={classDraftName}
+                                    autoFocus
+                                    maxLength={15}
+                                    placeholder="Class name"
+                                    onChange={(e) => setClassDraftName(e.target.value)}
+                                    onBlur={commitClassRename}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        commitClassRename();
+                                      } else if (e.key === 'Escape') {
+                                        e.preventDefault();
+                                        setEditingClassName(null);
+                                        setClassDraftName('');
+                                        e.currentTarget.blur();
+                                      }
+                                    }}
+                                  />
+                                ) : (
+                                  <p className="eyebrow">{className}</p>
+                                )}
+                                {editingClassName !== className && (
+                                  <div className="slot-class-actions">
+                                    <button
+                                      type="button"
+                                      className="secondary small"
+                                      onClick={() => startClassRename(className)}
+                                      title="Rename class"
+                                    >
+                                      Rename
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="secondary small"
+                                      onClick={() => duplicateClass(className)}
+                                      title="Duplicate class"
+                                    >
+                                      Duplicate
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="slot-stats-formulas">
+                                {Object.entries(statsDef.class_formulas?.[className] || {}).map(
+                                  ([stat, formula], index) => (
+                                    <div key={index} className="slot-stats-formula-row">
+                                      <input
+                                        type="text"
+                                        value={stat}
+                                        placeholder="Stat name"
+                                        onChange={(e) =>
+                                          updateClassFormulaRow(className, index, { stat: e.target.value })
+                                        }
+                                      />
+                                      <input
+                                        type="text"
+                                        value={formula}
+                                        placeholder="e.g. points * 2"
+                                        onChange={(e) =>
+                                          updateClassFormulaRow(className, index, { formula: e.target.value })
+                                        }
+                                      />
+                                      <button
+                                        type="button"
+                                        className="tag-remove"
+                                        onClick={() => removeClassFormulaRow(className, index)}
+                                        aria-label={`Remove formula for ${stat || 'new stat'}`}
+                                        title="Remove"
+                                      >
+                                        ×
+                                      </button>
+                                    </div>
+                                  )
+                                )}
+                                <button
+                                  type="button"
+                                  className="secondary small"
+                                  onClick={() => addClassFormulaRow(className)}
+                                >
+                                  + Add Stat Formula
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </>
+                    );
+                  })()}
+              </div>
+            )}
           </div>
         ) : (
           <div className="empty-state">

@@ -17,22 +17,27 @@ type TemplateCreateRequest struct {
 }
 
 type TemplateUpdateRequest struct {
-	ID    string          `json:"id" binding:"required"`
-	Name  string          `json:"name" binding:"required"`
-	Rules json.RawMessage `json:"rules" binding:"required"`
+	ID          string                  `json:"id"`
+	Name        string                  `json:"name" binding:"required"`
+	Description *string                 `json:"description"`
+	IsPrivate   *bool                   `json:"is_private"`
+	Stats       json.RawMessage         `json:"stats"`
+	Rules       json.RawMessage         `json:"rules" binding:"required"`
+	Components  []ComponentCreateInput  `json:"components"`
 }
 
 type TemplateResponse struct {
-	ID            string                 `json:"id"`
-	Name          string                 `json:"name"`
-	Description   *string                `json:"description,omitempty"`
-	CreatorUserID int32                  `json:"creator_user_id"`
-	IsPrivate     bool                   `json:"is_private"`
-	CreatedAt     time.Time              `json:"created_at"`
-	UpdatedAt     time.Time              `json:"updated_at"`
-	Rules         json.RawMessage        `json:"rules,omitempty"`
-	Stats         json.RawMessage        `json:"stats,omitempty"`
-	Components    []ComponentCreateInput `json:"components,omitempty"` // Added Components
+	ID              string                 `json:"id"`
+	Name            string                 `json:"name"`
+	Description     *string                `json:"description,omitempty"`
+	CreatorUserID   int32                  `json:"creator_user_id"`
+	CreatorUsername *string                `json:"creator_username,omitempty"`
+	IsPrivate       bool                   `json:"is_private"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
+	Rules           json.RawMessage        `json:"rules,omitempty"`
+	Stats           json.RawMessage        `json:"stats,omitempty"`
+	Components      []ComponentCreateInput `json:"components,omitempty"` // Added Components
 }
 
 // Universal mapper for repository.Template models (reused for create/update/get results)
@@ -60,18 +65,11 @@ func ToTemplateResponse(template *repository.Template, components []ComponentCre
 	}
 }
 
-func ToTemplateResponses(templates []repository.Template) []*TemplateResponse {
-	result := make([]*TemplateResponse, 0, len(templates))
-	for i := range templates {
-		result = append(result, ToTemplateResponse(&templates[i], nil))
-	}
-	return result
-}
-
 type ComponentCreateInput struct {
 	ScopedNumber int             `json:"scoped_number" binding:"required,gt=0"`
 	Name         string          `json:"name" binding:"required"`
 	Description  *string         `json:"description"`
+	SubCategory  *string         `json:"sub_category"`
 	Category     string          `json:"category" binding:"required"`
 	Effects      json.RawMessage `json:"effects" binding:"required"`
 	HasLevels    bool            `json:"has_levels"`
@@ -80,7 +78,7 @@ type ComponentCreateInput struct {
 	Tiers        json.RawMessage `json:"tiers"`
 }
 
-func ToTemplateResponseFromListRow(row *repository.Template) *TemplateResponse {
+func ToTemplateResponseFromListRow(row *repository.Template, creatorUsername *string) *TemplateResponse {
 	if row == nil {
 		return nil
 	}
@@ -91,22 +89,27 @@ func ToTemplateResponseFromListRow(row *repository.Template) *TemplateResponse {
 	}
 
 	return &TemplateResponse{
-		ID:            row.ID,
-		Name:          row.Name,
-		Description:   desc,
-		CreatorUserID: row.CreatorUserID,
-		IsPrivate:     row.IsPrivate,
-		CreatedAt:     row.CreatedAt.Time,
-		UpdatedAt:     row.UpdatedAt.Time,
-		Rules:         json.RawMessage(row.Rules),
-		Stats:         json.RawMessage(row.Stats),
+		ID:              row.ID,
+		Name:            row.Name,
+		Description:     desc,
+		CreatorUserID:   row.CreatorUserID,
+		CreatorUsername: creatorUsername,
+		IsPrivate:       row.IsPrivate,
+		CreatedAt:       row.CreatedAt.Time,
+		UpdatedAt:       row.UpdatedAt.Time,
+		Rules:           json.RawMessage(row.Rules),
+		Stats:           json.RawMessage(row.Stats),
 	}
 }
 
-func ToTemplateResponsesFromListRows(rows []repository.Template) []*TemplateResponse {
+func ToTemplateResponsesFromListRows(rows []repository.Template, usernames map[int32]string) []*TemplateResponse {
 	result := make([]*TemplateResponse, 0, len(rows))
 	for i := range rows {
-		result = append(result, ToTemplateResponseFromListRow(&rows[i]))
+		var uname *string
+		if u, ok := usernames[rows[i].CreatorUserID]; ok {
+			uname = &u
+		}
+		result = append(result, ToTemplateResponseFromListRow(&rows[i], uname))
 	}
 	return result
 }

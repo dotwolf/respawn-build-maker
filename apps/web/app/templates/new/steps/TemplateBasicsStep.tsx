@@ -6,6 +6,7 @@ interface TemplateBasicsStepProps {
   isPrivate: boolean;
   setIsPrivate: (isPrivate: boolean) => void;
   stats: string[];
+  readOnly?: boolean;
 }
 
 export default function TemplateBasicsStep({
@@ -16,6 +17,7 @@ export default function TemplateBasicsStep({
   isPrivate,
   setIsPrivate,
   stats,
+  readOnly = false,
 }: TemplateBasicsStepProps) {
   return (
     <section className="rules-section">
@@ -24,6 +26,7 @@ export default function TemplateBasicsStep({
         <input
           type="text"
           value={name}
+          readOnly={readOnly}
           onChange={(e) => setName(e.target.value)}
           placeholder="Template name"
         />
@@ -33,6 +36,7 @@ export default function TemplateBasicsStep({
         <strong>Description</strong>
         <textarea
           value={description}
+          readOnly={readOnly}
           onChange={(e) => setDescription(e.target.value)}
           rows={4}
           placeholder="Describe the purpose of this template"
@@ -52,6 +56,7 @@ export default function TemplateBasicsStep({
         <input
           type="checkbox"
           checked={isPrivate}
+          disabled={readOnly}
           onChange={(e) => setIsPrivate(e.target.checked)}
         />
         <span><strong>Private</strong> Only you can see and use this template.</span>

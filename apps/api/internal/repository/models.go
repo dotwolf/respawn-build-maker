@@ -44,6 +44,7 @@ type Component struct {
 	ScopedNumber int32
 	Name         string
 	Description  pgtype.Text
+	SubCategory  pgtype.Text
 	Category     string
 	Effects      []byte
 	HasLevels    bool

@@ -105,6 +105,7 @@ INSERT INTO components (
     scoped_number,
     name,
     description,
+    sub_category,
     category,
     effects,
     has_levels,
@@ -115,8 +116,8 @@ INSERT INTO components (
     created_at,
     updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
-) RETURNING id, template_id, scoped_number, name, description, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+) RETURNING id, template_id, scoped_number, name, description, sub_category, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
 `
 
 type CreateComponentParams struct {
@@ -124,6 +125,7 @@ type CreateComponentParams struct {
 	ScopedNumber int32
 	Name         string
 	Description  pgtype.Text
+	SubCategory  pgtype.Text
 	Category     string
 	Effects      []byte
 	HasLevels    bool
@@ -141,6 +143,7 @@ func (q *Queries) CreateComponent(ctx context.Context, arg CreateComponentParams
 		arg.ScopedNumber,
 		arg.Name,
 		arg.Description,
+		arg.SubCategory,
 		arg.Category,
 		arg.Effects,
 		arg.HasLevels,
@@ -158,6 +161,7 @@ func (q *Queries) CreateComponent(ctx context.Context, arg CreateComponentParams
 		&i.ScopedNumber,
 		&i.Name,
 		&i.Description,
+		&i.SubCategory,
 		&i.Category,
 		&i.Effects,
 		&i.HasLevels,
@@ -320,6 +324,21 @@ func (q *Queries) DeleteComponent(ctx context.Context, arg DeleteComponentParams
 	return err
 }
 
+const deleteComponentsByScopedNumbers = `-- name: DeleteComponentsByScopedNumbers :exec
+DELETE FROM components
+WHERE template_id = $1 AND NOT (scoped_number = ANY($2::int[]))
+`
+
+type DeleteComponentsByScopedNumbersParams struct {
+	TemplateID    string
+	ScopedNumbers []int32
+}
+
+func (q *Queries) DeleteComponentsByScopedNumbers(ctx context.Context, arg DeleteComponentsByScopedNumbersParams) error {
+	_, err := q.db.Exec(ctx, deleteComponentsByScopedNumbers, arg.TemplateID, arg.ScopedNumbers)
+	return err
+}
+
 const deleteTemplate = `-- name: DeleteTemplate :exec
 DELETE FROM templates
 WHERE id = $1
@@ -415,7 +434,7 @@ func (q *Queries) GetBuildVote(ctx context.Context, arg GetBuildVoteParams) (Bui
 }
 
 const getComponentByID = `-- name: GetComponentByID :one
-SELECT id, template_id, scoped_number, name, description, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
+SELECT id, template_id, scoped_number, name, description, sub_category, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
 FROM components
 WHERE id = $1 AND template_id = $2
 LIMIT 1
@@ -435,6 +454,7 @@ func (q *Queries) GetComponentByID(ctx context.Context, arg GetComponentByIDPara
 		&i.ScopedNumber,
 		&i.Name,
 		&i.Description,
+		&i.SubCategory,
 		&i.Category,
 		&i.Effects,
 		&i.HasLevels,
@@ -732,10 +752,10 @@ func (q *Queries) ListBuildsByUser(ctx context.Context, arg ListBuildsByUserPara
 }
 
 const listComponentsByTemplate = `-- name: ListComponentsByTemplate :many
-SELECT id, template_id, scoped_number, name, description, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
+SELECT id, template_id, scoped_number, name, description, sub_category, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
 FROM components
 WHERE template_id = $1
-ORDER BY created_at DESC
+ORDER BY scoped_number ASC
 LIMIT $2 OFFSET $3
 `
 
@@ -760,6 +780,7 @@ func (q *Queries) ListComponentsByTemplate(ctx context.Context, arg ListComponen
 			&i.ScopedNumber,
 			&i.Name,
 			&i.Description,
+			&i.SubCategory,
 			&i.Category,
 			&i.Effects,
 			&i.HasLevels,
@@ -1032,21 +1053,23 @@ UPDATE components
 SET
     name = COALESCE($1, name),
     description = COALESCE($2, description),
-    category = COALESCE($3, category),
-    effects = COALESCE($4, effects),
-    has_levels = COALESCE($5, has_levels),
-    level_scaling = COALESCE($6, level_scaling),
-    level_rule = COALESCE($7, level_rule),
-    tiers = COALESCE($8, tiers),
-    is_deleted = COALESCE($9, is_deleted),
-    updated_at = $10
-WHERE id = $11 AND template_id = $12
-RETURNING id, template_id, scoped_number, name, description, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
+    sub_category = COALESCE($3, sub_category),
+    category = COALESCE($4, category),
+    effects = COALESCE($5, effects),
+    has_levels = COALESCE($6, has_levels),
+    level_scaling = COALESCE($7, level_scaling),
+    level_rule = COALESCE($8, level_rule),
+    tiers = COALESCE($9, tiers),
+    is_deleted = COALESCE($10, is_deleted),
+    updated_at = $11
+WHERE id = $12 AND template_id = $13
+RETURNING id, template_id, scoped_number, name, description, sub_category, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
 `
 
 type UpdateComponentParams struct {
 	Name         string
 	Description  pgtype.Text
+	SubCategory  pgtype.Text
 	Category     string
 	Effects      []byte
 	HasLevels    bool
@@ -1063,6 +1086,7 @@ func (q *Queries) UpdateComponent(ctx context.Context, arg UpdateComponentParams
 	row := q.db.QueryRow(ctx, updateComponent,
 		arg.Name,
 		arg.Description,
+		arg.SubCategory,
 		arg.Category,
 		arg.Effects,
 		arg.HasLevels,
@@ -1081,6 +1105,7 @@ func (q *Queries) UpdateComponent(ctx context.Context, arg UpdateComponentParams
 		&i.ScopedNumber,
 		&i.Name,
 		&i.Description,
+		&i.SubCategory,
 		&i.Category,
 		&i.Effects,
 		&i.HasLevels,
@@ -1098,23 +1123,32 @@ const updateTemplate = `-- name: UpdateTemplate :one
 UPDATE templates
 SET
     name = $1,
-    rules = $2,
-    updated_at = $3
-WHERE id = $4
+    description = COALESCE($2, description),
+    stats = COALESCE($3, stats),
+    rules = $4,
+    is_private = $5,
+    updated_at = $6
+WHERE id = $7
 RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
 `
 
 type UpdateTemplateParams struct {
-	Name      string
-	Rules     []byte
-	UpdatedAt pgtype.Timestamptz
-	ID        string
+	Name        string
+	Description pgtype.Text
+	Stats       []byte
+	Rules       []byte
+	IsPrivate   bool
+	UpdatedAt   pgtype.Timestamptz
+	ID          string
 }
 
 func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) (Template, error) {
 	row := q.db.QueryRow(ctx, updateTemplate,
 		arg.Name,
+		arg.Description,
+		arg.Stats,
 		arg.Rules,
+		arg.IsPrivate,
 		arg.UpdatedAt,
 		arg.ID,
 	)
@@ -1337,6 +1371,95 @@ func (q *Queries) UpsertBuildVote(ctx context.Context, arg UpsertBuildVoteParams
 		&i.BuildID,
 		&i.Value,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const upsertComponent = `-- name: UpsertComponent :one
+INSERT INTO components (
+    template_id,
+    scoped_number,
+    name,
+    description,
+    sub_category,
+    category,
+    effects,
+    has_levels,
+    level_scaling,
+    level_rule,
+    tiers,
+    is_deleted,
+    created_at,
+    updated_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+) ON CONFLICT (template_id, scoped_number)
+DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    sub_category = EXCLUDED.sub_category,
+    category = EXCLUDED.category,
+    effects = EXCLUDED.effects,
+    has_levels = EXCLUDED.has_levels,
+    level_scaling = EXCLUDED.level_scaling,
+    level_rule = EXCLUDED.level_rule,
+    tiers = EXCLUDED.tiers,
+    is_deleted = EXCLUDED.is_deleted,
+    updated_at = EXCLUDED.updated_at
+RETURNING id, template_id, scoped_number, name, description, sub_category, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
+`
+
+type UpsertComponentParams struct {
+	TemplateID   string
+	ScopedNumber int32
+	Name         string
+	Description  pgtype.Text
+	SubCategory  pgtype.Text
+	Category     string
+	Effects      []byte
+	HasLevels    bool
+	LevelScaling pgtype.Text
+	LevelRule    []byte
+	Tiers        []byte
+	IsDeleted    bool
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+}
+
+func (q *Queries) UpsertComponent(ctx context.Context, arg UpsertComponentParams) (Component, error) {
+	row := q.db.QueryRow(ctx, upsertComponent,
+		arg.TemplateID,
+		arg.ScopedNumber,
+		arg.Name,
+		arg.Description,
+		arg.SubCategory,
+		arg.Category,
+		arg.Effects,
+		arg.HasLevels,
+		arg.LevelScaling,
+		arg.LevelRule,
+		arg.Tiers,
+		arg.IsDeleted,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	var i Component
+	err := row.Scan(
+		&i.ID,
+		&i.TemplateID,
+		&i.ScopedNumber,
+		&i.Name,
+		&i.Description,
+		&i.SubCategory,
+		&i.Category,
+		&i.Effects,
+		&i.HasLevels,
+		&i.LevelScaling,
+		&i.LevelRule,
+		&i.Tiers,
+		&i.IsDeleted,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

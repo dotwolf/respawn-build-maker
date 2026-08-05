@@ -30,6 +30,7 @@ interface TemplateComponentsStepProps {
   setComponents: (components: ExtendedComponent[]) => void;
   availableCategories: string[];
   availableSlots?: string[];
+  readOnly?: boolean;
 }
 
 type SortOption = 'oldest_first' | 'newest_first' | 'asc' | 'desc';
@@ -39,6 +40,7 @@ export default function TemplateComponentsStep({
   setComponents,
   availableCategories,
   availableSlots = [],
+  readOnly = false,
 }: TemplateComponentsStepProps) {
   const { notify } = useNotification();
   const { showTooltip, hideTooltip, updatePosition } = useTooltip();
@@ -59,6 +61,8 @@ export default function TemplateComponentsStep({
   const [statsFilter, setStatsFilter] = useState<string>('all');
   const [formHasLevels, setFormHasLevels] = useState(false);
   const [formLevelScaling, setFormLevelScaling] = useState<'formula' | 'tiers' | null>(null);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
   
   // Per-stat formulas state mapping stat names to formula expressions
   const [formFormulas, setFormFormulas] = useState<Record<string, string>>({});
@@ -151,6 +155,27 @@ export default function TemplateComponentsStep({
     resetForm();
   };
 
+  const renderModalActions = () => (
+    <>
+      {editingIndex !== null && (
+        <button
+          type="button"
+          onClick={handleDeleteComponent}
+          className="secondary danger"
+          style={{ marginRight: 'auto' }}
+        >
+          Delete
+        </button>
+      )}
+      <button type="button" onClick={handleCloseModal} className="secondary">
+        Cancel
+      </button>
+      <button type="button" onClick={handleSaveComponent} className="primary">
+        {editingIndex !== null ? 'Save Changes' : 'Create Component'}
+      </button>
+    </>
+  );
+
   const handleDeleteComponent = () => {
     if (editingIndex === null) return;
 
@@ -160,6 +185,97 @@ export default function TemplateComponentsStep({
     setComponents(nextComponents);
     notify(`Deleted "${targetComponent.name}".`, 'success');
     handleCloseModal();
+  };
+
+  const handleQuickDelete = (comp: ExtendedComponent) => {
+    const index = components.indexOf(comp);
+    if (index === -1) return;
+
+    hideTooltip();
+    const nextComponents = [...components];
+    nextComponents.splice(index, 1);
+    setComponents(nextComponents);
+    notify(`Deleted "${comp.name}".`, 'success');
+  };
+
+  const copyToClipboard = (text: string): boolean => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).catch(() => {});
+      return true;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      return document.execCommand('copy');
+    } catch {
+      return false;
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  };
+
+  const handleCopyComponents = () => {
+    const json = JSON.stringify(components, null, 2);
+    if (copyToClipboard(json)) {
+      notify(`Copied ${components.length} components to clipboard.`, 'success');
+    } else {
+      notify('Copy failed — please copy manually.', 'error');
+    }
+  };
+
+  const handleOpenImport = () => {
+    setImportText('');
+    setIsImportOpen(true);
+  };
+
+  const handleApplyImport = () => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(importText);
+    } catch {
+      notify('Invalid JSON — could not parse your paste.', 'error');
+      return;
+    }
+
+    if (!Array.isArray(parsed)) {
+      notify('Invalid input: expected a JSON array of components.', 'error');
+      return;
+    }
+
+    if (!parsed.every(isValidImportedComponent)) {
+      notify('Invalid input: every component needs name, category, and valid effects.', 'error');
+      return;
+    }
+
+    if (!window.confirm(`Import ${parsed.length} components? This will REPLACE the current component pool (${components.length} components).`)) {
+      return;
+    }
+
+    setComponents(parsed);
+    setIsImportOpen(false);
+    notify(`Imported ${parsed.length} components — existing pool replaced.`, 'success');
+  };
+
+  const isValidImportedComponent = (item: unknown): item is ExtendedComponent => {
+    if (typeof item !== 'object' || item === null) return false;
+    const comp = item as Record<string, unknown>;
+    if (typeof comp.name !== 'string' || !comp.name.trim()) return false;
+    if (typeof comp.category !== 'string' || !comp.category.trim()) return false;
+    if (!Array.isArray(comp.effects)) return false;
+    return comp.effects.every((effect) => {
+      if (typeof effect !== 'object' || effect === null) return false;
+      const e = effect as Record<string, unknown>;
+      return (
+        typeof e.stat === 'string' &&
+        (e.type === 'flat' || e.type === 'percent_add' || e.type === 'multiplier') &&
+        typeof e.value === 'number' &&
+        !Number.isNaN(e.value)
+      );
+    });
   };
 
   const getDefaultCategoryTarget = () => {
@@ -541,7 +657,19 @@ export default function TemplateComponentsStep({
   return (
     <div className="card form-card component-list">
       <div className="component-toolbar">
-        <h3>Inventory ({components.length})</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <h3 style={{ margin: 0 }}>Inventory ({components.length})</h3>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button type="button" onClick={handleCopyComponents} className="secondary small" title="Copy the component pool as JSON">
+              Copy JSON
+            </button>
+            {!readOnly && (
+              <button type="button" onClick={handleOpenImport} className="secondary small" title="Paste JSON to replace the component pool">
+                Paste JSON
+              </button>
+            )}
+          </div>
+        </div>
         <div className="component-toolbar-controls">
           <input
             type="text"
@@ -549,24 +677,26 @@ export default function TemplateComponentsStep({
             onChange={(e) => setFilterText(e.target.value)}
             placeholder="Filter by name, category or sub-category"
           />
-          <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
-            <option value="all">All categories</option>
-            {availableCategories.map((cat) => (
-              <option key={cat} value={cat}>{cat}</option>
-            ))}
-          </select>
-          <select value={statsFilter} onChange={(e) => setStatsFilter(e.target.value)}>
-            <option value="all">All stats</option>
-            {knownStats.map((stat) => (
-              <option key={stat} value={stat}>{stat}</option>
-            ))}
-          </select>
-          <select value={filterSort} onChange={(e) => setFilterSort(e.target.value as SortOption)}>
-            <option value="oldest_first">Oldest First</option>
-            <option value="newest_first">Newest First</option>
-            <option value="desc">Descending</option>
-            <option value="asc">Ascending</option>
-          </select>
+          <div className="component-toolbar-filter-row">
+            <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
+              <option value="all">All categories</option>
+              {availableCategories.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+            <select value={statsFilter} onChange={(e) => setStatsFilter(e.target.value)}>
+              <option value="all">All stats</option>
+              {knownStats.map((stat) => (
+                <option key={stat} value={stat}>{stat}</option>
+              ))}
+            </select>
+            <select value={filterSort} onChange={(e) => setFilterSort(e.target.value as SortOption)}>
+              <option value="oldest_first">Oldest First</option>
+              <option value="newest_first">Newest First</option>
+              <option value="desc">Descending</option>
+              <option value="asc">Ascending</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -574,7 +704,16 @@ export default function TemplateComponentsStep({
         {filteredComponents.map((comp, idx) => (
           <div
             key={`${comp.name}-${idx}`}
-            className="component-card"
+            className={`component-card ${!readOnly ? 'clickable' : ''}`}
+            onClick={() => {
+              if (!readOnly) handleEditComponent(comp);
+            }}
+            onKeyDown={(e) => {
+              if (!readOnly && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault();
+                handleEditComponent(comp);
+              }
+            }}
             onMouseEnter={(e) => showTooltip(comp, e)}
             onMouseMove={updatePosition}
             onMouseLeave={hideTooltip}
@@ -582,6 +721,21 @@ export default function TemplateComponentsStep({
             onBlur={hideTooltip}
             tabIndex={0}
           >
+            {!readOnly && (
+              <button
+                type="button"
+                className="component-card-delete"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleQuickDelete(comp);
+                }}
+                onMouseEnter={hideTooltip}
+                aria-label={`Delete ${comp.name}`}
+                title="Delete"
+              >
+                ×
+              </button>
+            )}
             <div className="component-card-header">
               <strong>{comp.name}</strong>
               <div className="component-card-badges">
@@ -594,36 +748,29 @@ export default function TemplateComponentsStep({
               )}
               {comp.has_levels && <span className="component-card-subcategory">Has levels</span>}
             </div>
-
-            <div className="component-card-actions">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleEditComponent(comp);
-                }}
-                className="secondary small edit-btn-floating"
-              >
-                Edit
-              </button>
-            </div>
           </div>
         ))}
 
-        <button
+        {!readOnly && <button
           type="button"
           className="component-card component-card-add"
           onClick={handleOpenModal}
         >
           <span>+</span>
           <strong>New Component</strong>
-        </button>
+        </button>}
       </div>
 
       {/* POPUP MODAL */}
       {isModalOpen && (
         <div className="modal-overlay" onClick={handleCloseModal}>
           <div className="modal-content add-component-form" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-actions-bar">
+              <h3 style={{ margin: 0 }}>{editingIndex !== null ? 'Edit Component' : 'New Component'}</h3>
+              <div className="modal-actions" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                {renderModalActions()}
+              </div>
+            </div>
             <div className="modal-body">
               <label>
                 Name<span style={{ color: 'red' }}>*</span>
@@ -968,21 +1115,33 @@ export default function TemplateComponentsStep({
             </div>
 
             <div className="modal-footer" style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
-              {editingIndex !== null && (
-                <button
-                  type="button"
-                  onClick={handleDeleteComponent}
-                  className="secondary danger"
-                  style={{ marginRight: 'auto' }}
-                >
-                  Delete
-                </button>
-              )}
-              <button type="button" onClick={handleCloseModal} className="secondary">
+              {renderModalActions()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PASTE IMPORT MODAL */}
+      {isImportOpen && (
+        <div className="modal-overlay" onClick={() => setIsImportOpen(false)}>
+          <div className="modal-content import-json-form" onClick={(e) => e.stopPropagation()}>
+            <h3>Paste Component Pool JSON</h3>
+            <p className="hint-label">
+              Paste a JSON array of components. Importing replaces the current pool entirely.
+            </p>
+            <textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              rows={14}
+              placeholder='[{ "name": "Iron Sword", "category": "Weapons", "effects": [{ "type": "flat", "scope": "global", "stat": "Damage", "value": 5 }] }]'
+              style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.85rem', boxSizing: 'border-box' }}
+            />
+            <div className="modal-footer" style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button type="button" onClick={() => setIsImportOpen(false)} className="secondary">
                 Cancel
               </button>
-              <button type="button" onClick={handleSaveComponent} className="primary">
-                {editingIndex !== null ? 'Save Changes' : 'Create Component'}
+              <button type="button" onClick={handleApplyImport} className="primary">
+                Import & Replace
               </button>
             </div>
           </div>

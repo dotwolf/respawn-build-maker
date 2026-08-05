@@ -104,6 +104,11 @@ func (s *TemplateService) CreateTemplateWithComponents(ctx context.Context, req 
 			compDescValue = pgtype.Text{String: *comp.Description, Valid: true}
 		}
 
+		var compSubCategoryValue pgtype.Text
+		if comp.SubCategory != nil {
+			compSubCategoryValue = pgtype.Text{String: *comp.SubCategory, Valid: true}
+		}
+
 		tiersValue := []byte(comp.Tiers)
 		if len(tiersValue) == 0 {
 			tiersValue = []byte("[]")
@@ -114,6 +119,7 @@ func (s *TemplateService) CreateTemplateWithComponents(ctx context.Context, req 
 			ScopedNumber: int32(comp.ScopedNumber),
 			Name:         compName,
 			Description:  compDescValue,
+			SubCategory:  compSubCategoryValue,
 			Category:     compCategory,
 			Effects:      []byte(comp.Effects),
 			HasLevels:    comp.HasLevels,
@@ -203,10 +209,16 @@ func (s *TemplateService) GetTemplateByID(ctx context.Context, id string) (*dto.
 			scaling = &c.LevelScaling.String
 		}
 
+		var subCategory *string
+		if c.SubCategory.Valid {
+			subCategory = &c.SubCategory.String
+		}
+
 		components = append(components, dto.ComponentCreateInput{
 			ScopedNumber: int(c.ScopedNumber),
 			Name:         c.Name,
 			Description:  desc,
+			SubCategory:  subCategory,
 			Category:     c.Category,
 			Effects:      json.RawMessage(c.Effects),
 			HasLevels:    c.HasLevels,
@@ -239,7 +251,41 @@ func (s *TemplateService) ListTemplatesByUser(ctx context.Context, creatorUserID
 		return nil, err
 	}
 
-	return dto.ToTemplateResponses(templates), nil
+	usernames, err := s.usernamesByIDs(ctx, templates)
+	if err != nil {
+		return nil, err
+	}
+
+	return dto.ToTemplateResponsesFromListRows(templates, usernames), nil
+}
+
+func (s *TemplateService) usernamesByIDs(ctx context.Context, templates []repository.Template) (map[int32]string, error) {
+	result := make(map[int32]string, len(templates))
+
+	uniqueIDs := make([]int32, 0, len(templates))
+	seen := make(map[int32]struct{}, len(templates))
+	for _, t := range templates {
+		if _, ok := seen[t.CreatorUserID]; ok {
+			continue
+		}
+		seen[t.CreatorUserID] = struct{}{}
+		uniqueIDs = append(uniqueIDs, t.CreatorUserID)
+	}
+
+	if len(uniqueIDs) == 0 {
+		return result, nil
+	}
+
+	users, err := s.queries.GetUsersByIDs(ctx, uniqueIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch template creators: %w", err)
+	}
+
+	for _, u := range users {
+		result[u.ID] = u.Username
+	}
+
+	return result, nil
 }
 
 func (s *TemplateService) UpdateTemplate(ctx context.Context, req *dto.TemplateUpdateRequest) (*dto.TemplateResponse, error) {
@@ -254,18 +300,113 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, req *dto.TemplateU
 		return nil, fmt.Errorf("template name is required")
 	}
 
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := s.queries.WithTx(tx)
+
 	now := time.Now()
-	template, err := s.queries.UpdateTemplate(ctx, repository.UpdateTemplateParams{
-		ID:        req.ID,
-		Name:      name,
-		UpdatedAt: pgtype.Timestamptz{Time: now, Valid: true},
-		Rules:     []byte(req.Rules),
+
+	var descValue pgtype.Text
+	if req.Description != nil {
+		descValue = pgtype.Text{String: *req.Description, Valid: true}
+	}
+
+	statsValue := []byte(req.Stats)
+	if len(statsValue) == 0 {
+		statsValue = []byte("[]")
+	}
+
+	isPrivate := false
+	if req.IsPrivate != nil {
+		isPrivate = *req.IsPrivate
+	}
+
+	template, err := qtx.UpdateTemplate(ctx, repository.UpdateTemplateParams{
+		ID:          req.ID,
+		Name:        name,
+		Description: descValue,
+		Stats:       statsValue,
+		Rules:       []byte(req.Rules),
+		IsPrivate:   isPrivate,
+		UpdatedAt:   pgtype.Timestamptz{Time: now, Valid: true},
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return dto.ToTemplateResponse(&template, nil), nil
+	// Replace the component pool: upsert every submitted component keyed by
+	// scoped_number, then delete any stored components not present in the payload.
+	updatedComponents := make([]dto.ComponentCreateInput, 0, len(req.Components))
+	scopedNumbers := make([]int32, 0, len(req.Components))
+	for _, comp := range req.Components {
+		compName := strings.TrimSpace(comp.Name)
+		if compName == "" {
+			return nil, fmt.Errorf("component name is required")
+		}
+		compCategory := strings.TrimSpace(comp.Category)
+		if compCategory == "" {
+			return nil, fmt.Errorf("component category is required")
+		}
+
+		var levelScalingValue pgtype.Text
+		if comp.LevelScaling != nil {
+			levelScalingValue = pgtype.Text{String: *comp.LevelScaling, Valid: true}
+		}
+
+		var compDescValue pgtype.Text
+		if comp.Description != nil {
+			compDescValue = pgtype.Text{String: *comp.Description, Valid: true}
+		}
+
+		var compSubCategoryValue pgtype.Text
+		if comp.SubCategory != nil {
+			compSubCategoryValue = pgtype.Text{String: *comp.SubCategory, Valid: true}
+		}
+
+		tiersValue := []byte(comp.Tiers)
+		if len(tiersValue) == 0 {
+			tiersValue = []byte("[]")
+		}
+
+		if _, err := qtx.UpsertComponent(ctx, repository.UpsertComponentParams{
+			TemplateID:   req.ID,
+			ScopedNumber: int32(comp.ScopedNumber),
+			Name:         compName,
+			Description:  compDescValue,
+			SubCategory:  compSubCategoryValue,
+			Category:     compCategory,
+			Effects:      []byte(comp.Effects),
+			HasLevels:    comp.HasLevels,
+			LevelScaling: levelScalingValue,
+			LevelRule:    []byte(comp.LevelRule),
+			Tiers:        tiersValue,
+			IsDeleted:    false,
+			CreatedAt:    pgtype.Timestamptz{Time: now, Valid: true},
+			UpdatedAt:    pgtype.Timestamptz{Time: now, Valid: true},
+		}); err != nil {
+			return nil, fmt.Errorf("failed to upsert component '%s': %w", compName, err)
+		}
+
+		scopedNumbers = append(scopedNumbers, int32(comp.ScopedNumber))
+		updatedComponents = append(updatedComponents, comp)
+	}
+
+	if err := qtx.DeleteComponentsByScopedNumbers(ctx, repository.DeleteComponentsByScopedNumbersParams{
+		TemplateID:   req.ID,
+		ScopedNumbers: scopedNumbers,
+	}); err != nil {
+		return nil, fmt.Errorf("failed to remove stale components: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return dto.ToTemplateResponse(&template, updatedComponents), nil
 }
 
 func (s *TemplateService) DeleteTemplate(ctx context.Context, id string) error {
@@ -434,5 +575,10 @@ func (s *TemplateService) ListPublicTemplates(ctx context.Context, limit int32, 
 		return nil, err
 	}
 
-	return dto.ToTemplateResponses(templates), nil
+	usernames, err := s.usernamesByIDs(ctx, templates)
+	if err != nil {
+		return nil, err
+	}
+
+	return dto.ToTemplateResponsesFromListRows(templates, usernames), nil
 }

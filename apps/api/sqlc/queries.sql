@@ -116,9 +116,12 @@ LIMIT $2 OFFSET $3;
 UPDATE templates
 SET
     name = $1,
-    rules = $2,
-    updated_at = $3
-WHERE id = $4
+    description = COALESCE($2, description),
+    stats = COALESCE($3, stats),
+    rules = $4,
+    is_private = $5,
+    updated_at = $6
+WHERE id = $7
 RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at;
 
 -- name: DeleteTemplate :exec
@@ -223,6 +226,7 @@ INSERT INTO components (
     scoped_number,
     name,
     description,
+    sub_category,
     category,
     effects,
     has_levels,
@@ -233,20 +237,20 @@ INSERT INTO components (
     created_at,
     updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
-) RETURNING id, template_id, scoped_number, name, description, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at;
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+) RETURNING id, template_id, scoped_number, name, description, sub_category, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at;
 
 -- name: GetComponentByID :one
-SELECT id, template_id, scoped_number, name, description, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
+SELECT id, template_id, scoped_number, name, description, sub_category, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
 FROM components
 WHERE id = $1 AND template_id = $2
 LIMIT 1;
 
 -- name: ListComponentsByTemplate :many
-SELECT id, template_id, scoped_number, name, description, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
+SELECT id, template_id, scoped_number, name, description, sub_category, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at
 FROM components
 WHERE template_id = $1
-ORDER BY created_at DESC
+ORDER BY scoped_number ASC
 LIMIT $2 OFFSET $3;
 
 -- name: UpdateComponent :one
@@ -254,16 +258,54 @@ UPDATE components
 SET
     name = COALESCE($1, name),
     description = COALESCE($2, description),
-    category = COALESCE($3, category),
-    effects = COALESCE($4, effects),
-    has_levels = COALESCE($5, has_levels),
-    level_scaling = COALESCE($6, level_scaling),
-    level_rule = COALESCE($7, level_rule),
-    tiers = COALESCE($8, tiers),
-    is_deleted = COALESCE($9, is_deleted),
-    updated_at = $10
-WHERE id = $11 AND template_id = $12
-RETURNING id, template_id, scoped_number, name, description, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at;
+    sub_category = COALESCE($3, sub_category),
+    category = COALESCE($4, category),
+    effects = COALESCE($5, effects),
+    has_levels = COALESCE($6, has_levels),
+    level_scaling = COALESCE($7, level_scaling),
+    level_rule = COALESCE($8, level_rule),
+    tiers = COALESCE($9, tiers),
+    is_deleted = COALESCE($10, is_deleted),
+    updated_at = $11
+WHERE id = $12 AND template_id = $13
+RETURNING id, template_id, scoped_number, name, description, sub_category, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at;
+
+-- name: UpsertComponent :one
+INSERT INTO components (
+    template_id,
+    scoped_number,
+    name,
+    description,
+    sub_category,
+    category,
+    effects,
+    has_levels,
+    level_scaling,
+    level_rule,
+    tiers,
+    is_deleted,
+    created_at,
+    updated_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+) ON CONFLICT (template_id, scoped_number)
+DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    sub_category = EXCLUDED.sub_category,
+    category = EXCLUDED.category,
+    effects = EXCLUDED.effects,
+    has_levels = EXCLUDED.has_levels,
+    level_scaling = EXCLUDED.level_scaling,
+    level_rule = EXCLUDED.level_rule,
+    tiers = EXCLUDED.tiers,
+    is_deleted = EXCLUDED.is_deleted,
+    updated_at = EXCLUDED.updated_at
+RETURNING id, template_id, scoped_number, name, description, sub_category, category, effects, has_levels, level_scaling, level_rule, tiers, is_deleted, created_at, updated_at;
+
+-- name: DeleteComponentsByScopedNumbers :exec
+DELETE FROM components
+WHERE template_id = sqlc.arg('template_id') AND NOT (scoped_number = ANY(sqlc.arg('scoped_numbers')::int[]));
 
 -- name: DeleteComponent :exec
 DELETE FROM components

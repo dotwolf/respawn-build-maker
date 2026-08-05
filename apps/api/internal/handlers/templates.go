@@ -66,6 +66,24 @@ func GetTemplateByID(templateService services.TemplateServiceInterface) gin.Hand
 	}
 }
 
+func UpdateTemplate(templateService services.TemplateServiceInterface) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req dto.TemplateUpdateRequest
+		if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()}); return }
+		req.ID = c.Param("template_id")
+		template, err := templateService.UpdateTemplate(c.Request.Context(), &req)
+		if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()}); return }
+		c.JSON(http.StatusOK, template)
+	}
+}
+
+func DeleteTemplate(templateService services.TemplateServiceInterface) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if err := templateService.DeleteTemplate(c.Request.Context(), c.Param("template_id")); err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()}); return }
+		c.Status(http.StatusNoContent)
+	}
+}
+
 // ListTemplatesByUser godoc
 // @Summary      List templates by user
 // @Description  List templates created by a user with pagination

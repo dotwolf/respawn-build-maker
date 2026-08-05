@@ -56,9 +56,12 @@ func (s *BuildService) CreateBuild(ctx context.Context, templateID string, req *
 	now := time.Now()
 	buildID := fmt.Sprintf("build-%d", now.UnixNano())
 
+	description := pgtype.Text{String: strings.TrimSpace(req.Description), Valid: strings.TrimSpace(req.Description) != ""}
+
 	build, err := s.queries.CreateBuild(ctx, repository.CreateBuildParams{
 		ID:            buildID,
 		Name:          name,
+		Description:   description,
 		CreatorUserID: req.CreatorUserID,
 		TemplateID:    templateID,
 		CreatedAt:     pgtype.Timestamptz{Time: now, Valid: true},
@@ -66,6 +69,7 @@ func (s *BuildService) CreateBuild(ctx context.Context, templateID string, req *
 		Tags:          req.Tags,
 		VoteScore:     0,
 		Components:    []byte(req.Components),
+		IsPrivate:     req.IsPrivate,
 	})
 	if err != nil {
 		return nil, err
@@ -148,12 +152,16 @@ func (s *BuildService) UpdateBuild(ctx context.Context, req *dto.BuildUpdateRequ
 	}
 
 	now := time.Now()
+	description := pgtype.Text{String: strings.TrimSpace(req.Description), Valid: strings.TrimSpace(req.Description) != ""}
+
 	build, err := s.queries.UpdateBuild(ctx, repository.UpdateBuildParams{
-		ID:         req.ID,
-		Name:       name,
-		UpdatedAt:  pgtype.Timestamptz{Time: now, Valid: true},
-		Tags:       req.Tags,
-		Components: []byte(req.Components),
+		ID:          req.ID,
+		Name:        name,
+		Description: description,
+		UpdatedAt:   pgtype.Timestamptz{Time: now, Valid: true},
+		Tags:        req.Tags,
+		Components:  []byte(req.Components),
+		IsPrivate:   req.IsPrivate,
 	})
 	if err != nil {
 		return nil, err

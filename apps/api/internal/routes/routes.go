@@ -42,6 +42,8 @@ func SetupRoutes(router *gin.Engine, pool *pgxpool.Pool) {
 		templates.POST("/full", authMiddleware, handlers.CreateTemplate(templateService))
 		templates.GET("", handlers.ListTemplates(templateService))
 		templates.GET("/:template_id", handlers.GetTemplateByID(templateService))
+		templates.PUT("/:template_id", authMiddleware, handlers.UpdateTemplate(templateService))
+		templates.DELETE("/:template_id", authMiddleware, handlers.DeleteTemplate(templateService))
 
 		builds := templates.Group("/:template_id/builds")
 		{

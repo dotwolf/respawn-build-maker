@@ -8,6 +8,7 @@ interface SlotCanvasProps {
   setSlots: (slots: Slot[]) => void;
   selectedSlotIndex: number | null;
   setSelectedSlotIndex: (index: number | null) => void;
+  readOnly?: boolean;
 }
 
 const SLOT_SIZE = 96;
@@ -24,6 +25,7 @@ export default function SlotCanvas({
   setSlots,
   selectedSlotIndex,
   setSelectedSlotIndex,
+  readOnly = false,
 }: SlotCanvasProps) {
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const [draggingSlotIndex, setDraggingSlotIndex] = useState<number | null>(null);
@@ -32,13 +34,16 @@ export default function SlotCanvas({
   useEffect(() => {
     if (draggingSlotIndex === null) return;
 
+    const slot = slots[draggingSlotIndex];
+    const slotSize = slot?.size ?? SLOT_SIZE;
+
     const handlePointerMove = (event: MouseEvent) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
 
       const rect = canvas.getBoundingClientRect();
-      const maxX = Math.max(0, rect.width - SLOT_SIZE);
-      const maxY = Math.max(0, rect.height - SLOT_SIZE);
+      const maxX = Math.max(0, rect.width - slotSize);
+      const maxY = Math.max(0, rect.height - slotSize);
 
       const nextX = Math.min(maxX, Math.max(0, event.clientX - rect.left - dragOffset.x));
       const nextY = Math.min(maxY, Math.max(0, event.clientY - rect.top - dragOffset.y));
@@ -68,6 +73,10 @@ export default function SlotCanvas({
   }, [dragOffset, draggingSlotIndex, setSlots, slots]);
 
   const beginDrag = (index: number, event: React.MouseEvent<HTMLButtonElement>) => {
+    if (readOnly) {
+      setSelectedSlotIndex(index);
+      return;
+    }
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -93,18 +102,28 @@ export default function SlotCanvas({
         ) : (
           slots.map((slot, index) => {
             const position = slot.position ?? getDefaultPosition(index);
+            const size = slot.size ?? SLOT_SIZE;
 
             return (
               <button
                 key={`${slot.slot_name}-${index}`}
                 type="button"
                 className={`slot-card slot-card-square ${selectedSlotIndex === index ? 'selected' : ''}`}
-                style={{ left: `${position.x}px`, top: `${position.y}px` }}
+                style={{
+                  left: `${position.x}px`,
+                  top: `${position.y}px`,
+                  width: `${size}px`,
+                  height: `${size}px`,
+                  backgroundColor: slot.color || undefined,
+                  opacity: slot.transparency !== undefined ? slot.transparency / 100 : undefined,
+                }}
                 onClick={() => setSelectedSlotIndex(index)}
                 onMouseDown={(event) => beginDrag(index, event)}
               >
                 <div className="slot-card-top">
-                  <h4>{slot.slot_name}</h4>
+                  <h4 style={{ color: slot.textColor || undefined, fontSize: `${Math.round(size * 0.16)}px` }}>
+                    {slot.shown_name || slot.slot_name}
+                  </h4>
                 </div>
               </button>
             );

@@ -25,6 +25,8 @@ type TemplateServiceInterface interface {
 	GetTemplateByID(ctx context.Context, id string) (*dto.TemplateResponse, error)
 	ListTemplatesByUser(ctx context.Context, creatorUserID int32, limit int32, offset int32) ([]*dto.TemplateResponse, error)
 	ListPublicTemplates(ctx context.Context, limit int32, offset int32) ([]*dto.TemplateResponse, error)
+	UpdateTemplate(ctx context.Context, req *dto.TemplateUpdateRequest) (*dto.TemplateResponse, error)
+	DeleteTemplate(ctx context.Context, id string) error
 }
 
 type BuildServiceInterface interface {
