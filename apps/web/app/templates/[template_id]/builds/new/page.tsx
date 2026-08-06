@@ -26,6 +26,8 @@ import {
   mergeSlotRules,
 } from '../../../../lib/buildMath';
 import type { EquippedEntry, StatSummary } from '../../../../lib/buildMath';
+import { normalizeTemplateStats, orderStats, shouldShowStatDivider, statGroupOf, statIsNegative } from '../../../../lib/stats';
+import type { StatDefinition } from '../../../../lib/stats';
 
 interface Auth {
   user: { id: number; email?: string };
@@ -142,6 +144,7 @@ function BuildEditor() {
   const [distSlotName, setDistSlotName] = useState<string | null>(null);
   const [distPos, setDistPos] = useState<{ x: number; y: number } | null>(null);
   const [distDrag, setDistDrag] = useState<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
+  const [templateStats, setTemplateStats] = useState<StatDefinition[]>([]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [panelWidths, setPanelWidths] = useState({ left: 28, middle: 44, right: 28 });
@@ -184,6 +187,7 @@ function BuildEditor() {
         setSlots(loadedSlots);
         setConstraints(Array.isArray(rules.constraints) ? rules.constraints : []);
         setComponents(Array.isArray(template.components) ? template.components : []);
+        setTemplateStats(normalizeTemplateStats(template.stats));
         const initialLevels: Record<string, number> = {};
         loadedSlots.forEach((slot: Slot) => {
           if (slot.stats) initialLevels[slot.slot_name] = getSlotLevelRange(slot.stats).min;
@@ -369,6 +373,11 @@ function BuildEditor() {
     const slotRules = computeSlotRules(slots, slotLevels, slotDistribution);
     return mergeSlotRules(base, slotRules);
   }, [activeEntries, slots, slotLevels, slotDistribution]);
+
+  const orderedStats = useMemo(
+    () => orderStats(stats, templateStats, (summary) => summary.stat),
+    [stats, templateStats]
+  );
 
   const constraintMeasures = useMemo(
     () => getConstraintMeasures(equipped, constraints),
@@ -974,20 +983,50 @@ function BuildEditor() {
               </div>
             ) : (
               <div className="build-stats-list">
-                {stats.map((summary) => (
-                  <div
-                    key={summary.stat}
-                    className="build-stat-row"
-                    onMouseEnter={(e) => setStatPopover({ stat: summary, x: e.clientX, y: e.clientY })}
-                    onMouseMove={(e) =>
-                      setStatPopover((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : prev))
-                    }
-                    onMouseLeave={() => setStatPopover(null)}
-                  >
-                    <span className="build-stat-name">{summary.stat}</span>
-                    <span className="build-stat-value">{summary.final}</span>
-                  </div>
-                ))}
+                {orderedStats.map((summary, index) => {
+                  const prev = index > 0 ? orderedStats[index - 1] : undefined;
+                  const group = statGroupOf(templateStats, summary.stat);
+                  const negative = statIsNegative(templateStats, summary.stat);
+                  const valueClass = negative
+                    ? summary.final > 0
+                      ? 'build-stat-value-bad'
+                      : summary.final < 0
+                        ? 'build-stat-value-good'
+                        : ''
+                    : '';
+                  return (
+                    <div key={summary.stat}>
+                      {shouldShowStatDivider(
+                        prev ? { group: statGroupOf(templateStats, prev.stat) } : undefined,
+                        { group }
+                      ) && (
+                        <div className="build-stat-group-divider">
+                          {group ? <span>{group}</span> : null}
+                        </div>
+                      )}
+                      <div
+                        className={`build-stat-row${negative ? ' build-stat-row-negative' : ''}`}
+                        onMouseEnter={(e) => setStatPopover({ stat: summary, x: e.clientX, y: e.clientY })}
+                        onMouseMove={(e) =>
+                          setStatPopover((prevPos) => (prevPos ? { ...prevPos, x: e.clientX, y: e.clientY } : prevPos))
+                        }
+                        onMouseLeave={() => setStatPopover(null)}
+                      >
+                        <span className="build-stat-name">
+                          {summary.stat}
+                          {negative && (
+                            <span className="build-stat-negative-hint" title="Higher is worse, lower is better">
+                              ↓
+                            </span>
+                          )}
+                        </span>
+                        <span className={`build-stat-value${valueClass ? ` ${valueClass}` : ''}`}>
+                          {summary.final}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
 

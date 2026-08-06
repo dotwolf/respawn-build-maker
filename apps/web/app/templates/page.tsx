@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useState, useEffect, useMemo } from 'react';
 import { Search, Plus, Sparkles, CalendarDays, User, Lock, Shield } from 'lucide-react';
 import { apiFetch } from '../lib/api';
+import { normalizeTemplateStats } from '../lib/stats';
 import { useNotification } from '../components/NotificationProvider';
 
 type TemplateSummary = {
@@ -211,8 +212,8 @@ export default function TemplatesPage() {
 
                 {Array.isArray(template.stats) && template.stats.length > 0 && (
                   <div className="stats-chips">
-                    {template.stats.slice(0, 6).map((stat) => (
-                      <span key={stat} className="stat-chip">{stat}</span>
+                    {normalizeTemplateStats(template.stats).slice(0, 6).map((stat) => (
+                      <span key={stat.name} className="stat-chip">{stat.name}</span>
                     ))}
                     {template.stats.length > 6 && (
                       <span className="stat-chip">+{template.stats.length - 6} more</span>

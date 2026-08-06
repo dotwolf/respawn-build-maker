@@ -36,6 +36,11 @@ func SetupRoutes(router *gin.Engine, pool *pgxpool.Pool) {
 		authGroup.POST("/login", handlers.Login(authService))
 	}
 
+	builds := router.Group("/builds")
+	{
+		builds.GET("", handlers.ListBuildsByUser(buildService))
+	}
+
 	templates := router.Group("/templates")
 	{
 		templates.POST("", handlers.CreateTemplate(templateService))

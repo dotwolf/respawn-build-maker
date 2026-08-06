@@ -146,3 +146,54 @@ func ListBuildsByTemplate(buildService services.BuildServiceInterface) gin.Handl
 		c.JSON(http.StatusOK, builds)
 	}
 }
+
+// ListBuildsByUser godoc
+// @Summary      List builds created by a user
+// @Description  Returns builds created by the given creator user ID, including private ones
+// @Tags         builds
+// @Accept       json
+// @Produce      json
+// @Param        user_id query int true "Creator user ID"
+// @Param        limit query int false "Page size"
+// @Param        offset query int false "Page offset"
+// @Success      200  {array}   dto.BuildResponse
+// @Failure      400  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /builds [get]
+func ListBuildsByUser(buildService services.BuildServiceInterface) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userIDStr := c.Query("user_id")
+		if userIDStr == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+			return
+		}
+		userID, err := strconv.Atoi(userIDStr)
+		if err != nil || userID <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user_id"})
+			return
+		}
+
+		limitStr := c.DefaultQuery("limit", "20")
+		offsetStr := c.DefaultQuery("offset", "0")
+
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil || limit < 1 {
+			limit = 20
+		}
+		offset, err := strconv.Atoi(offsetStr)
+		if err != nil || offset < 0 {
+			offset = 0
+		}
+
+		builds, err := buildService.ListBuildsByUser(c.Request.Context(), int32(userID), int32(limit), int32(offset))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if len(builds) == 0 {
+			c.JSON(http.StatusOK, []dto.BuildResponse{})
+			return
+		}
+		c.JSON(http.StatusOK, builds)
+	}
+}

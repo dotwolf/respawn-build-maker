@@ -694,7 +694,7 @@ func (q *Queries) ListBuildsByTemplate(ctx context.Context, arg ListBuildsByTemp
 const listBuildsByUser = `-- name: ListBuildsByUser :many
 SELECT id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 FROM builds
-WHERE creator_user_id = $1 AND is_private = FALSE
+WHERE creator_user_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
 `

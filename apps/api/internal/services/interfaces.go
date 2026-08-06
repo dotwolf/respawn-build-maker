@@ -33,4 +33,5 @@ type BuildServiceInterface interface {
 	CreateBuild(ctx context.Context, templateID string, req *dto.BuildCreateRequest) (*dto.BuildResponse, error)
 	GetBuildByID(ctx context.Context, templateID, id string) (*dto.BuildResponse, error)
 	ListBuildsByTemplate(ctx context.Context, templateID string, limit int32, offset int32) ([]*dto.BuildResponse, error)
+	ListBuildsByUser(ctx context.Context, creatorUserID int32, limit int32, offset int32) ([]*dto.BuildResponse, error)
 }

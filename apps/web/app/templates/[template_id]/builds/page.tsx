@@ -20,7 +20,7 @@ export default function TemplateBuildsPage() {
 
     apiFetch(`/templates/${encodeURIComponent(templateId)}/builds`)
       .then((data) => {
-        setBuilds(Array.isArray(data) ? data : []);
+        setBuilds(Array.isArray(data) ? data.filter((build) => build != null) : []);
       })
       .catch((error) => {
         notify(error instanceof Error ? error.message : 'Failed to load builds.', 'error');
@@ -52,7 +52,7 @@ export default function TemplateBuildsPage() {
           <div className="result-list">
             {builds.map((build) => (
               <article key={build.id} className="result-card">
-                <h3>{build.name}</h3>
+                <h3>{build.name ?? 'Untitled build'}</h3>
                 <p>ID: {build.id}</p>
                 <p>Score: {build.vote_score ?? 0}</p>
                 <Link href={`/templates/${templateId}/builds/${build.id}`} className="button small">

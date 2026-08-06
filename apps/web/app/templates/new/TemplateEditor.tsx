@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useNotification } from '../../components/NotificationProvider';
 import { TooltipProvider } from '../../components/TooltipProvider';
 import { apiFetch } from '../../lib/api';
+import { normalizeTemplateStats } from '../../lib/stats';
+import type { StatDefinition } from '../../lib/stats';
 import TemplateBasicsStep from './steps/TemplateBasicsStep';
 import TemplateComponentsStep from './steps/TemplateComponentsStep';
 import SlotSection from './components/SlotSection';
@@ -121,6 +123,7 @@ export function TemplateEditor({
   const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [components, setComponents] = useState<Component[]>([]);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
+  const [templateStats, setTemplateStats] = useState<StatDefinition[]>([]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [panelWidths, setPanelWidths] = useState({ left: 25, middle: 50, right: 25 });
@@ -202,9 +205,26 @@ export function TemplateEditor({
         );
         setConstraints(Array.isArray(rules.constraints) ? rules.constraints : []);
         setComponents(Array.isArray(template.components) ? template.components : []);
+        setTemplateStats(normalizeTemplateStats(template.stats));
       })
       .catch((error) => notify(error instanceof Error ? error.message : 'Failed to load template.', 'error'));
   }, [templateId, notify]);
+
+  // Keep the ordered stat list in sync with the component pool: preserve the
+  // author's order/group/negative flags for existing stats, append new ones.
+  useEffect(() => {
+    setTemplateStats((prev) => {
+      const next = prev.filter((def) => derivedStats.includes(def.name));
+      const seen = new Set(next.map((def) => def.name));
+      derivedStats.forEach((name) => {
+        if (!seen.has(name)) {
+          next.push({ name });
+          seen.add(name);
+        }
+      });
+      return next.length === prev.length ? prev : next;
+    });
+  }, [derivedStats]);
 
   // Lock body scroll during full-screen editor layout
   useEffect(() => {
@@ -356,8 +376,8 @@ export function TemplateEditor({
         level_rule: component.level_rule || null,
       }));
 
-      // Ensure stats is explicitly forced to an array payload just in case derivedStats is somehow empty
-      const payloadStats = Array.isArray(derivedStats) ? derivedStats : [];
+      // Ordered stat definitions (name + group + negative flag) derived from components
+      const payloadStats = templateStats;
 
       const response = await apiFetch(mode === 'edit' && templateId ? `/templates/${encodeURIComponent(templateId)}` : '/templates/full', {
         method: mode === 'edit' ? 'PUT' : 'POST',
@@ -430,7 +450,8 @@ export function TemplateEditor({
               setDescription={setDescription}
               isPrivate={isPrivate}
               setIsPrivate={setIsPrivate}
-              stats={derivedStats}
+              stats={templateStats}
+              setStats={setTemplateStats}
               readOnly={mode === 'view'}
             />
             <SlotSection
