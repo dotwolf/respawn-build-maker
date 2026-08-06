@@ -7,12 +7,11 @@ import (
 )
 
 type BuildCreateRequest struct {
-	Name          string          `json:"name" binding:"required"`
-	Description   string          `json:"description,omitempty"`
-	CreatorUserID int32           `json:"creator_user_id" binding:"required,gt=0"`
-	Tags          []string        `json:"tags,omitempty"`
-	Components    json.RawMessage `json:"components" binding:"required"`
-	IsPrivate     bool            `json:"is_private"`
+	Name        string          `json:"name" binding:"required"`
+	Description string          `json:"description,omitempty"`
+	Tags        []string        `json:"tags,omitempty"`
+	Components  json.RawMessage `json:"components" binding:"required"`
+	IsPrivate   bool            `json:"is_private"`
 }
 
 type BuildUpdateRequest struct {

@@ -28,6 +28,12 @@ export interface CurrentEffectValue {
   note?: string;
 }
 
+export interface ClassPointAllocation {
+  slot: string;
+  className: string;
+  allocated: number;
+}
+
 export interface ConstraintMeasure {
   key: string;
   constraint: Constraint;
@@ -39,6 +45,36 @@ export function formatEffectValue(type: string, value: number): string {
   if (type === 'percent_add') return `${value > 0 ? '+' : ''}${value}%`;
   if (type === 'multiplier') return `x${value}`;
   return `${value > 0 ? '+' : ''}${value}`;
+}
+
+export function formatStatSummary(summary: StatSummary): string {
+  const round = (value: number) => Math.round(value * 100) / 100;
+  const { flat, percent, multiplier, final } = summary;
+  if (flat === 0 && percent === 0 && multiplier !== 1) {
+    return `${round(multiplier)}x`;
+  }
+  if (flat === 0 && multiplier === 1 && percent !== 0) {
+    const p = round(percent);
+    return `${p > 0 ? '+' : ''}${p}%`;
+  }
+  const f = round(final);
+  return `${f > 0 ? '+' : ''}${f}`;
+}
+
+export type StatQuality = 'good' | 'bad' | 'neutral';
+
+export function statQuality(summary: StatSummary, negative: boolean): StatQuality {
+  const { flat, percent, multiplier, final } = summary;
+  let quality: StatQuality;
+  if (flat === 0 && percent === 0 && multiplier !== 1) {
+    quality = multiplier < 1 ? 'bad' : 'good';
+  } else if (flat === 0 && multiplier === 1 && percent !== 0) {
+    quality = percent < 0 ? 'bad' : 'good';
+  } else {
+    quality = final > 0 ? 'good' : final < 0 ? 'bad' : 'neutral';
+  }
+  if (quality === 'neutral') return 'neutral';
+  return negative ? (quality === 'good' ? 'bad' : 'good') : quality;
 }
 
 export function getMaxLevel(component: Component): number {
@@ -483,6 +519,27 @@ export function getDistributionBreakdown(
     statPool: rules.includes('stat_points') ? level * pointsPerLevel : 0,
     classPool: rules.includes('class_points') ? level * pointsPerLevel : 0,
   };
+}
+
+export function collectClassPoints(
+  slots: Slot[],
+  slotLevels: Record<string, number>,
+  slotDistribution: Record<string, Record<string, number>>
+): ClassPointAllocation[] {
+  const results: ClassPointAllocation[] = [];
+  slots.forEach((slot) => {
+    const statsDef = slot.stats;
+    if (!statsDef) return;
+    const level = slotLevels[slot.slot_name] ?? 0;
+    if (level <= 0) return;
+    if (!getSlotRules(statsDef).includes('class_points')) return;
+    const distribution = slotDistribution[slot.slot_name] || {};
+    (statsDef.classes || []).forEach((className) => {
+      const allocated = distribution[className] ?? 0;
+      if (allocated > 0) results.push({ slot: slot.shown_name || slot.slot_name, className, allocated });
+    });
+  });
+  return results;
 }
 
 export function computeSlotRules(

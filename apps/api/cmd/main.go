@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"main/apps/api/internal/auth"
+	"main/apps/api/internal/middleware"
 	"main/apps/api/internal/routes"
 	"os"
 
@@ -21,22 +23,29 @@ import (
 // @name Authorization
 // @description Type "Bearer" followed by a space and the JWT token.
 func main() {
+	secret := auth.Secret("")
+	if secret == "" {
+		fmt.Fprintln(os.Stderr, "FATAL: JWT_SECRET_KEY is required")
+		os.Exit(1)
+	}
+
+	if os.Getenv("GOOGLE_CLIENT_ID") == "" {
+		fmt.Fprintln(os.Stderr, "WARN: GOOGLE_CLIENT_ID is not set; Google sign-in will be unavailable")
+	}
+
 	pool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
 		os.Exit(1)
 	}
 
-	r := gin.Default()
 	gin.SetMode(os.Getenv("GIN_MODE"))
-
-	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:8080", "http://localhost:3000"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
-		AllowCredentials: true,
-		MaxAge:           3600,
-	}))
+	r := gin.New()
+	r.Use(gin.Logger())
+	r.Use(gin.Recovery())
+	r.Use(middleware.SecurityHeaders())
+	r.Use(middleware.BodyLimit(10 << 20))
+	r.Use(cors.New(middleware.CorsConfig()))
 
 	routes.SetupRoutes(r, pool)
 	r.Run(":8080")

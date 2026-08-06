@@ -32,7 +32,7 @@ func CreateUser(UserService services.UserServiceInterface) gin.HandlerFunc {
 		}
 		user, err := UserService.CreateUser(c.Request.Context(), &req)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondError(c, err)
 			return
 		}
 		c.JSON(http.StatusCreated, user)
@@ -104,7 +104,7 @@ func GetUserByQuery(UserService services.UserServiceInterface) gin.HandlerFunc {
 		}
 		users, err := UserService.ListUsers(c.Request.Context(), req)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondError(c, err)
 			return
 		}
 		if len(users) == 0 {
@@ -125,7 +125,31 @@ func GetCurrentUser(UserService services.UserServiceInterface) gin.HandlerFunc {
 
 		user, err := UserService.GetPrivateUserByID(c.Request.Context(), claims.UserID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondError(c, err)
+			return
+		}
+
+		c.JSON(http.StatusOK, user)
+	}
+}
+
+func UpdateUsername(UserService services.UserServiceInterface) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := auth.GetClaims(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing auth claims"})
+			return
+		}
+
+		var req dto.UpdateUsernameRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		user, err := UserService.UpdateUsername(c.Request.Context(), claims.UserID, &req)
+		if err != nil {
+			respondError(c, err)
 			return
 		}
 
@@ -168,7 +192,7 @@ func DeleteUser(UserService services.UserServiceInterface) gin.HandlerFunc {
 
 		err = UserService.DeleteUser(c.Request.Context(), int32(id))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "User deleted successfully"})

@@ -1,10 +1,39 @@
 "use client";
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, EyeOff, Plus, Search, Lock, Sparkles, User, LogOut, Trash2 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { useNotification } from '../components/NotificationProvider';
+
+type GoogleCredentialResponse = {
+  credential?: string;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: {
+            client_id: string;
+            callback: (response: GoogleCredentialResponse) => void;
+          }) => void;
+          renderButton: (
+            el: HTMLElement,
+            options: {
+              theme?: string;
+              size?: string;
+              text?: string;
+              shape?: string;
+              width?: number;
+            },
+          ) => void;
+        };
+      };
+    };
+  }
+}
 
 type AuthState = {
   token: string;
@@ -26,6 +55,7 @@ type TemplateSummary = {
 };
 
 const authStorageKey = 'respawn-auth';
+const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? '';
 
 function formatDate(value?: string) {
   if (!value) return null;
@@ -48,6 +78,9 @@ export default function ProfilePage() {
   const { notify } = useNotification();
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [isUsernameModalOpen, setIsUsernameModalOpen] = useState(false);
+  const googleButtonRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -60,6 +93,65 @@ export default function ProfilePage() {
       }
     }
   }, []);
+
+  const handleGoogleCredential = async (response: GoogleCredentialResponse) => {
+    if (!response.credential) {
+      notify('Google sign-in did not return a credential.', 'error');
+      return;
+    }
+    try {
+      const resp = await apiFetch('/auth/google', {
+        method: 'POST',
+        body: JSON.stringify({ id_token: response.credential }),
+      });
+      setAuth(resp as AuthState);
+      window.localStorage.setItem(authStorageKey, JSON.stringify(resp));
+      notify('Logged in with Google.', 'success');
+      if (typeof window !== 'undefined') window.location.reload();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Google sign-in failed.', 'error');
+    }
+  };
+
+  useEffect(() => {
+    if (auth || !googleClientId) return;
+    let cancelled = false;
+
+    const initGoogle = () => {
+      if (!window.google?.accounts?.id || !googleButtonRef.current) return;
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: handleGoogleCredential,
+      });
+      googleButtonRef.current.innerHTML = '';
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: 'outline',
+        size: 'large',
+        text: 'continue_with',
+        shape: 'rectangular',
+      });
+    };
+
+    const existing = document.getElementById('gsi-script');
+    if (existing) {
+      initGoogle();
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.id = 'gsi-script';
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      if (!cancelled) initGoogle();
+    };
+    document.head.appendChild(script);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [auth, googleClientId]);
 
   useEffect(() => {
     if (!auth?.user.id) return;
@@ -162,6 +254,40 @@ export default function ProfilePage() {
     notify('Logged out.', 'success');
   };
 
+  const openUsernameModal = () => {
+    setNewUsername(auth?.user.username ?? '');
+    setIsUsernameModalOpen(true);
+  };
+
+  const handleUpdateUsername = async () => {
+    const next = newUsername.trim();
+    if (!next) {
+      notify('Enter a username.', 'error');
+      return;
+    }
+    if (next === auth?.user.username) {
+      notify('That is already your username.', 'error');
+      return;
+    }
+    try {
+      const resp = await apiFetch('/users/me/username', {
+        method: 'PUT',
+        body: JSON.stringify({ username: next }),
+      });
+      const updated = {
+        ...auth!,
+        user: { ...auth!.user, username: resp.username },
+      };
+      setAuth(updated);
+      window.localStorage.setItem(authStorageKey, JSON.stringify(updated));
+      setNewUsername('');
+      setIsUsernameModalOpen(false);
+      notify('Username updated.', 'success');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Could not update username.', 'error');
+    }
+  };
+
   return (
     <main className="content-narrow">
       {!auth ? (
@@ -213,6 +339,17 @@ export default function ProfilePage() {
 
             <section className="card form-card">
               <h2>Login</h2>
+              {googleClientId && (
+                <>
+                  <div
+                    ref={googleButtonRef}
+                    style={{ display: 'flex', justifyContent: 'center', margin: '.5rem 0 1rem' }}
+                  />
+                  <div className="auth-divider">
+                    <span>or with email</span>
+                  </div>
+                </>
+              )}
               <div className="form-grid">
                 <label>
                   Email
@@ -366,6 +503,9 @@ export default function ProfilePage() {
               Logged in as <strong>{auth.user.username}</strong>
             </p>
             <div className="page-actions">
+              <button className="button secondary" type="button" onClick={openUsernameModal}>
+                Change username
+              </button>
               <button className="button secondary" type="button" onClick={handleLogout}>
                 <LogOut size={16} /> Sign out
               </button>
@@ -374,6 +514,48 @@ export default function ProfilePage() {
               </button>
             </div>
           </section>
+
+          {isUsernameModalOpen && (
+            <div className="modal-overlay" onClick={() => setIsUsernameModalOpen(false)}>
+              <div
+                className="modal-content"
+                style={{ maxWidth: 440, padding: '1.5rem' }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="modal-actions-bar">
+                  <h3 style={{ margin: 0 }}>Change username</h3>
+                </div>
+                <div style={{ marginTop: '1rem' }}>
+                  <label>
+                    New username
+                    <input
+                      value={newUsername}
+                      onChange={(e) => setNewUsername(e.target.value)}
+                      placeholder="New username"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleUpdateUsername();
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+                <div
+                  className="modal-footer"
+                  style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}
+                >
+                  <button className="button secondary" type="button" onClick={() => setIsUsernameModalOpen(false)}>
+                    Cancel
+                  </button>
+                  <button className="button" type="button" onClick={handleUpdateUsername}>
+                    Save
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </main>

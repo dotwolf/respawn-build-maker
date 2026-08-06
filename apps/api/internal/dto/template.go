@@ -7,13 +7,12 @@ import (
 )
 
 type TemplateCreateRequest struct {
-	Name          string                 `json:"name" binding:"required"`
-	Description   *string                `json:"description"`
-	CreatorUserID int32                  `json:"creator_user_id" binding:"required,gt=0"`
-	Rules         json.RawMessage        `json:"rules" binding:"required"`
-	IsPrivate     bool                   `json:"is_private"`
-	Stats         json.RawMessage        `json:"stats"`
-	Components    []ComponentCreateInput `json:"components" binding:"required,min=1"`
+	Name        string                 `json:"name" binding:"required"`
+	Description *string                `json:"description"`
+	Rules       json.RawMessage        `json:"rules" binding:"required"`
+	IsPrivate   bool                   `json:"is_private"`
+	Stats       json.RawMessage        `json:"stats"`
+	Components  []ComponentCreateInput `json:"components" binding:"required,min=1"`
 }
 
 type TemplateUpdateRequest struct {
@@ -61,6 +60,7 @@ func ToTemplateResponse(template *repository.Template, components []ComponentCre
 		CreatedAt:     template.CreatedAt.Time,
 		UpdatedAt:     template.UpdatedAt.Time,
 		Rules:         json.RawMessage(template.Rules),
+		Stats:         json.RawMessage(template.Stats),
 		Components:    components,
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
@@ -32,7 +34,7 @@ func (s *UserService) CreateUser(ctx context.Context, user *dto.UserRegisterRequ
 		return nil, err
 	}
 	if exists {
-		return nil, errors.New("username or email already taken")
+		return nil, conflictError("username or email already taken")
 	}
 	if err := validateUsername(user.Username); err != nil {
 		return nil, err
@@ -55,6 +57,7 @@ func (s *UserService) CreateUser(ctx context.Context, user *dto.UserRegisterRequ
 		Username:  user.Username,
 		Email:     user.Email,
 		Password:  string(hashedPassword),
+		GoogleSub: pgtype.Text{},
 		CreatedAt: pgtype.Timestamptz{Time: now, Valid: true},
 		UpdatedAt: pgtype.Timestamptz{Time: now, Valid: true},
 	})
@@ -88,7 +91,50 @@ func (s *UserService) GetPrivateUserByID(ctx context.Context, id int32) (*dto.Pr
 	return dto.ToPrivateProfile(&user), nil
 }
 func (s *UserService) DeleteUser(ctx context.Context, id int32) error {
-	return s.queries.DeleteUser(ctx, id)
+	if err := s.queries.DeleteUser(ctx, id); err != nil {
+		if err == pgx.ErrNoRows {
+			return ErrNotFound
+		}
+		return err
+	}
+	return nil
+}
+
+// UpdateUsername changes the authenticated user's username, rejecting names
+// that are invalid or already taken by another account.
+func (s *UserService) UpdateUsername(ctx context.Context, userID int32, req *dto.UpdateUsernameRequest) (*dto.PrivateProfileResponse, error) {
+	if err := validateUsername(req.Username); err != nil {
+		return nil, err
+	}
+
+	existing, err := s.queries.GetUserByUsername(ctx, req.Username)
+	if err == nil {
+		if existing.ID != userID {
+			return nil, conflictError("username is already taken")
+		}
+		return dto.ToPrivateProfile(&existing), nil
+	}
+	if err != pgx.ErrNoRows {
+		return nil, err
+	}
+
+	updated, err := s.queries.UpdateUserUsername(ctx, repository.UpdateUserUsernameParams{
+		Username:  req.Username,
+		UpdatedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true},
+		ID:        userID,
+	})
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, conflictError("username is already taken")
+		}
+		return nil, err
+	}
+
+	return dto.ToPrivateProfile(&updated), nil
 }
 
 func (s *UserService) ListUsers(ctx context.Context, params repository.ListUsersParams) ([]*dto.PublicProfileResponse, error) {
@@ -105,11 +151,11 @@ func (s *UserService) ListUsers(ctx context.Context, params repository.ListUsers
 
 func validateUsername(username string) error {
 	if len(username) < 4 || len(username) > 30 {
-		return errors.New("username must be 4 to 30 characters")
+		return validationError("username must be 4 to 30 characters")
 	}
 	valid := regexp.MustCompile(`^[a-zA-Z0-9_]+$`).MatchString
 	if !valid(username) {
-		return errors.New("username can only contain letters, numbers, and underscores")
+		return validationError("username can only contain letters, numbers, and underscores")
 	}
 	return nil
 }
@@ -117,21 +163,21 @@ func validateUsername(username string) error {
 func validateEmail(email string) error {
 	valid := regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`).MatchString
 	if !valid(email) {
-		return errors.New("invalid email format")
+		return validationError("invalid email format")
 	}
 	return nil
 }
 
 func validatePassword(password string) error {
 	if len(password) < 8 || len(password) > 50 {
-		return errors.New("password must be 8 to 50 characters")
+		return validationError("password must be 8 to 50 characters")
 	}
 	upper := regexp.MustCompile(`[A-Z]`).MatchString
 	lower := regexp.MustCompile(`[a-z]`).MatchString
 	number := regexp.MustCompile(`[0-9]`).MatchString
 	special := regexp.MustCompile(`[!@#~$%^&*()_+|<>{}[\]\/?]`).MatchString
 	if !upper(password) || !lower(password) || !number(password) || !special(password) {
-		return errors.New("password must contain at least one uppercase letter, one lowercase letter, one number, and one special character")
+		return validationError("password must contain at least one uppercase letter, one lowercase letter, one number, and one special character")
 	}
 	return nil
 }

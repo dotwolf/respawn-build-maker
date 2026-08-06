@@ -16,6 +16,15 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required" msg:"Password is required"`
 }
 
+type GoogleLoginRequest struct {
+	IDToken  string `json:"id_token" binding:"required" msg:"Google ID token is required"`
+	Username string `json:"username" binding:"omitempty,min=4,max=30" msg:"Username must be 4 to 30 characters"`
+}
+
+type UpdateUsernameRequest struct {
+	Username string `json:"username" binding:"required,min=4,max=30" msg:"Username is required and must be 4 to 30 characters"`
+}
+
 type PublicProfileResponse struct {
 	ID       int32  `json:"id"`
 	Username string `json:"username"`

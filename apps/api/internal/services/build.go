@@ -26,31 +26,31 @@ func validateBuildTemplateAccess(buildTemplateID, templateID string) error {
 	templateID = strings.TrimSpace(templateID)
 
 	if templateID == "" {
-		return fmt.Errorf("template id is required")
+		return validationError("template id is required")
 	}
 	if buildTemplateID == "" {
-		return fmt.Errorf("build template id is required")
+		return validationError("build template id is required")
 	}
 	if buildTemplateID != templateID {
-		return fmt.Errorf("build does not belong to template")
+		return validationError("build does not belong to template")
 	}
 	return nil
 }
 
-func (s *BuildService) CreateBuild(ctx context.Context, templateID string, req *dto.BuildCreateRequest) (*dto.BuildResponse, error) {
+func (s *BuildService) CreateBuild(ctx context.Context, templateID string, creatorUserID int32, req *dto.BuildCreateRequest) (*dto.BuildResponse, error) {
 	if req == nil {
-		return nil, fmt.Errorf("request is required")
+		return nil, validationError("request is required")
 	}
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, fmt.Errorf("build name is required")
+		return nil, validationError("build name is required")
 	}
-	if req.CreatorUserID <= 0 {
-		return nil, fmt.Errorf("creator user id is required")
+	if creatorUserID <= 0 {
+		return nil, validationError("creator user id is required")
 	}
 	if strings.TrimSpace(templateID) == "" {
-		return nil, fmt.Errorf("template id is required")
+		return nil, validationError("template id is required")
 	}
 
 	now := time.Now()
@@ -62,7 +62,7 @@ func (s *BuildService) CreateBuild(ctx context.Context, templateID string, req *
 		ID:            buildID,
 		Name:          name,
 		Description:   description,
-		CreatorUserID: req.CreatorUserID,
+		CreatorUserID: creatorUserID,
 		TemplateID:    templateID,
 		CreatedAt:     pgtype.Timestamptz{Time: now, Valid: true},
 		UpdatedAt:     pgtype.Timestamptz{Time: now, Valid: true},
@@ -78,24 +78,39 @@ func (s *BuildService) CreateBuild(ctx context.Context, templateID string, req *
 	return dto.ToBuildResponseFromCreate(&build), nil
 }
 
-func (s *BuildService) GetBuildByID(ctx context.Context, templateID, id string) (*dto.BuildResponse, error) {
+func (s *BuildService) GetBuildByID(ctx context.Context, templateID, id string, requesterID int32) (*dto.BuildResponse, error) {
 	if strings.TrimSpace(id) == "" {
-		return nil, fmt.Errorf("build id is required")
+		return nil, validationError("build id is required")
 	}
 
-	build, err := s.queries.GetBuildByID(ctx, id)
+	build, err := s.queries.GetBuildByIDAny(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if build.IsPrivate && requesterID != build.CreatorUserID {
+		return nil, ErrNotFound
 	}
 	if err := validateBuildTemplateAccess(build.TemplateID, templateID); err != nil {
 		return nil, err
 	}
-	return dto.ToBuildResponseFromGet(&build), nil
+	return dto.ToBuildResponse(&repository.Build{
+		ID:            build.ID,
+		Name:          build.Name,
+		Description:   build.Description,
+		CreatorUserID: build.CreatorUserID,
+		TemplateID:    build.TemplateID,
+		Tags:          build.Tags,
+		VoteScore:     build.VoteScore,
+		Components:    build.Components,
+		IsPrivate:     build.IsPrivate,
+		CreatedAt:     build.CreatedAt,
+		UpdatedAt:     build.UpdatedAt,
+	}), nil
 }
 
 func (s *BuildService) ListBuildsByUser(ctx context.Context, creatorUserID int32, limit int32, offset int32) ([]*dto.BuildResponse, error) {
 	if creatorUserID <= 0 {
-		return nil, fmt.Errorf("creator user id is required")
+		return nil, validationError("creator user id is required")
 	}
 	if limit <= 0 {
 		limit = 20
@@ -116,9 +131,9 @@ func (s *BuildService) ListBuildsByUser(ctx context.Context, creatorUserID int32
 	return dto.ToBuildResponsesFromListByUser(builds), nil
 }
 
-func (s *BuildService) ListBuildsByTemplate(ctx context.Context, templateID string, limit int32, offset int32) ([]*dto.BuildResponse, error) {
+func (s *BuildService) ListBuildsByTemplate(ctx context.Context, templateID string, requesterID int32, limit int32, offset int32) ([]*dto.BuildResponse, error) {
 	if strings.TrimSpace(templateID) == "" {
-		return nil, fmt.Errorf("template id is required")
+		return nil, validationError("template id is required")
 	}
 	if limit <= 0 {
 		limit = 20
@@ -128,9 +143,10 @@ func (s *BuildService) ListBuildsByTemplate(ctx context.Context, templateID stri
 	}
 
 	builds, err := s.queries.ListBuildsByTemplate(ctx, repository.ListBuildsByTemplateParams{
-		TemplateID: templateID,
-		Limit:      limit,
-		Offset:     offset,
+		TemplateID:  templateID,
+		RequesterID: requesterID,
+		Limit:       limit,
+		Offset:      offset,
 	})
 	if err != nil {
 		return nil, err
@@ -141,14 +157,14 @@ func (s *BuildService) ListBuildsByTemplate(ctx context.Context, templateID stri
 
 func (s *BuildService) UpdateBuild(ctx context.Context, req *dto.BuildUpdateRequest) (*dto.BuildResponse, error) {
 	if req == nil {
-		return nil, fmt.Errorf("request is required")
+		return nil, validationError("request is required")
 	}
 	if strings.TrimSpace(req.ID) == "" {
-		return nil, fmt.Errorf("build id is required")
+		return nil, validationError("build id is required")
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, fmt.Errorf("build name is required")
+		return nil, validationError("build name is required")
 	}
 
 	now := time.Now()
@@ -172,20 +188,20 @@ func (s *BuildService) UpdateBuild(ctx context.Context, req *dto.BuildUpdateRequ
 
 func (s *BuildService) DeleteBuild(ctx context.Context, id string) error {
 	if strings.TrimSpace(id) == "" {
-		return fmt.Errorf("build id is required")
+		return validationError("build id is required")
 	}
 	return s.queries.DeleteBuild(ctx, id)
 }
 
 func (s *BuildService) VoteBuild(ctx context.Context, userID int32, buildID string, value int16) (*dto.BuildResponse, error) {
 	if userID <= 0 {
-		return nil, fmt.Errorf("user id is required")
+		return nil, validationError("user id is required")
 	}
 	if strings.TrimSpace(buildID) == "" {
-		return nil, fmt.Errorf("build id is required")
+		return nil, validationError("build id is required")
 	}
 	if value != 1 && value != -1 {
-		return nil, fmt.Errorf("vote value must be 1 or -1")
+		return nil, validationError("vote value must be 1 or -1")
 	}
 
 	build, err := s.queries.GetBuildByID(ctx, buildID)
@@ -235,10 +251,10 @@ func (s *BuildService) VoteBuild(ctx context.Context, userID int32, buildID stri
 
 func (s *BuildService) RemoveBuildVote(ctx context.Context, userID int32, buildID string) (*dto.BuildResponse, error) {
 	if userID <= 0 {
-		return nil, fmt.Errorf("user id is required")
+		return nil, validationError("user id is required")
 	}
 	if strings.TrimSpace(buildID) == "" {
-		return nil, fmt.Errorf("build id is required")
+		return nil, validationError("build id is required")
 	}
 
 	build, err := s.queries.GetBuildByID(ctx, buildID)

@@ -4,6 +4,7 @@ CREATE TABLE users (
     username VARCHAR(255) NOT NULL UNIQUE,
     email VARCHAR(255) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
+    google_sub VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -78,6 +79,7 @@ CREATE TABLE build_votes (
 );
 
 -- INDEXES FOR OPTIMAL SQLC QUERY PERFORMANCE
+CREATE UNIQUE INDEX idx_users_google_sub ON users(google_sub);
 CREATE INDEX idx_templates_creator ON templates(creator_user_id);
 CREATE INDEX idx_components_template ON components(template_id);
 CREATE INDEX idx_builds_template ON builds(template_id);

@@ -3,32 +3,45 @@ INSERT INTO users (
     username,
     email,
     password,
+    google_sub,
     created_at,
     updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5
-) RETURNING id, username, email, password, created_at, updated_at;
+    $1, $2, $3, $4, $5, $6
+) RETURNING id, username, email, password, google_sub, created_at, updated_at;
 
 -- name: GetUserByID :one
-SELECT id, username, email, password, created_at, updated_at
+SELECT id, username, email, password, google_sub, created_at, updated_at
 FROM users
 WHERE id = $1
 LIMIT 1;
 
 -- name: GetUserByEmail :one
-SELECT id, username, email, password, created_at, updated_at
+SELECT id, username, email, password, google_sub, created_at, updated_at
 FROM users
 WHERE email = $1
 LIMIT 1;
 
 -- name: GetUserByUsername :one
-SELECT id, username, email, password, created_at, updated_at
+SELECT id, username, email, password, google_sub, created_at, updated_at
 FROM users
 WHERE username = $1
 LIMIT 1;
 
+-- name: GetUserByGoogleSub :one
+SELECT id, username, email, password, google_sub, created_at, updated_at
+FROM users
+WHERE google_sub = $1
+LIMIT 1;
+
+-- name: LinkUserGoogleSub :one
+UPDATE users
+SET google_sub = $1, updated_at = $2
+WHERE id = $3
+RETURNING id, username, email, password, google_sub, created_at, updated_at;
+
 -- name: ListUsers :many
-SELECT id, username, email, created_at, updated_at
+SELECT id, username, email, google_sub, created_at, updated_at
 FROM users
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2;
@@ -39,27 +52,28 @@ SET
     username = COALESCE($1, username),
     email = COALESCE($2, email),
     password = COALESCE($3, password),
-    updated_at = $4
-WHERE id = $5
-RETURNING id, username, email, password, created_at, updated_at;
+    google_sub = COALESCE($4, google_sub),
+    updated_at = $5
+WHERE id = $6
+RETURNING id, username, email, password, google_sub, created_at, updated_at;
 
 -- name: UpdateUserUsername :one
 UPDATE users
 SET username = $1, updated_at = $2
 WHERE id = $3
-RETURNING id, username, email, password, created_at, updated_at;
+RETURNING id, username, email, password, google_sub, created_at, updated_at;
 
 -- name: UpdateUserEmail :one
 UPDATE users
 SET email = $1, updated_at = $2
 WHERE id = $3
-RETURNING id, username, email, password, created_at, updated_at;
+RETURNING id, username, email, password, google_sub, created_at, updated_at;
 
 -- name: UpdateUserPassword :one
 UPDATE users
 SET password = $1, updated_at = $2
 WHERE id = $3
-RETURNING id, username, email, password, created_at, updated_at;
+RETURNING id, username, email, password, google_sub, created_at, updated_at;
 
 -- name: DeleteUser :exec
 DELETE FROM users
@@ -78,7 +92,7 @@ SELECT EXISTS(
 SELECT COUNT(*) FROM users;
 
 -- name: GetUsersByIDs :many
-SELECT id, username, email, created_at, updated_at
+SELECT id, username, email, google_sub, created_at, updated_at
 FROM users
 WHERE id = ANY($1::int[])
 ORDER BY created_at DESC;
@@ -105,12 +119,24 @@ FROM templates
 WHERE id = $1 AND is_private = FALSE
 LIMIT 1;
 
+-- name: GetTemplateByIDAny :one
+SELECT id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
+FROM templates
+WHERE id = $1
+LIMIT 1;
+
+-- name: GetTemplateCreatorByID :one
+SELECT creator_user_id
+FROM templates
+WHERE id = $1
+LIMIT 1;
+
 -- name: ListTemplatesByUser :many
 SELECT id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
 FROM templates
-WHERE creator_user_id = $1 AND is_private = FALSE
+WHERE creator_user_id = sqlc.arg('creator_user_id') AND (is_private = FALSE OR sqlc.arg('requester_id')::integer = creator_user_id)
 ORDER BY created_at DESC
-LIMIT $2 OFFSET $3;
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: UpdateTemplate :one
 UPDATE templates
@@ -158,6 +184,12 @@ FROM builds
 WHERE id = $1 AND is_private = FALSE
 LIMIT 1;
 
+-- name: GetBuildByIDAny :one
+SELECT id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
+FROM builds
+WHERE id = $1
+LIMIT 1;
+
 -- name: ListBuildsByUser :many
 SELECT id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 FROM builds
@@ -168,9 +200,9 @@ LIMIT $2 OFFSET $3;
 -- name: ListBuildsByTemplate :many
 SELECT id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 FROM builds
-WHERE template_id = $1 AND is_private = FALSE
+WHERE template_id = sqlc.arg('template_id') AND (is_private = FALSE OR creator_user_id = sqlc.arg('requester_id'))
 ORDER BY created_at DESC
-LIMIT $2 OFFSET $3;
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: UpdateBuild :one
 UPDATE builds

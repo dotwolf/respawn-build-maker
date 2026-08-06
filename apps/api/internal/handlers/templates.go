@@ -28,9 +28,15 @@ func CreateTemplate(templateService services.TemplateServiceInterface) gin.Handl
 			return
 		}
 
-		template, err := templateService.CreateTemplateWithComponents(c.Request.Context(), &req)
+		creatorUserID := RequesterID(c)
+		if creatorUserID <= 0 {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		template, err := templateService.CreateTemplateWithComponents(c.Request.Context(), creatorUserID, &req)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondError(c, err)
 			return
 		}
 		c.JSON(http.StatusCreated, template)
@@ -57,9 +63,9 @@ func GetTemplateByID(templateService services.TemplateServiceInterface) gin.Hand
 			return
 		}
 
-		template, err := templateService.GetTemplateByID(c.Request.Context(), id)
+		template, err := templateService.GetTemplateByIDForUser(c.Request.Context(), id, RequesterID(c))
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Template not found"})
+			respondError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, template)
@@ -71,15 +77,22 @@ func UpdateTemplate(templateService services.TemplateServiceInterface) gin.Handl
 		var req dto.TemplateUpdateRequest
 		if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()}); return }
 		req.ID = c.Param("template_id")
-		template, err := templateService.UpdateTemplate(c.Request.Context(), &req)
-		if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()}); return }
+		template, err := templateService.UpdateTemplate(c.Request.Context(), RequesterID(c), &req)
+		if err != nil {
+			respondError(c, err)
+			return
+		}
 		c.JSON(http.StatusOK, template)
 	}
 }
 
 func DeleteTemplate(templateService services.TemplateServiceInterface) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if err := templateService.DeleteTemplate(c.Request.Context(), c.Param("template_id")); err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()}); return }
+		err := templateService.DeleteTemplate(c.Request.Context(), RequesterID(c), c.Param("template_id"))
+		if err != nil {
+			respondError(c, err)
+			return
+		}
 		c.Status(http.StatusNoContent)
 	}
 }
@@ -118,14 +131,17 @@ func ListTemplatesByUser(templateService services.TemplateServiceInterface) gin.
 		if err != nil || limit < 1 {
 			limit = 20
 		}
+		if limit > 100 {
+			limit = 100
+		}
 		offset, err := strconv.Atoi(offsetStr)
 		if err != nil || offset < 0 {
 			offset = 0
 		}
 
-		templates, err := templateService.ListTemplatesByUser(c.Request.Context(), int32(userID), int32(limit), int32(offset))
+		templates, err := templateService.ListTemplatesByUser(c.Request.Context(), int32(userID), RequesterID(c), int32(limit), int32(offset))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondError(c, err)
 			return
 		}
 		if len(templates) == 0 {
@@ -158,6 +174,9 @@ func ListTemplates(templateService services.TemplateServiceInterface) gin.Handle
 		if err != nil || limit < 1 {
 			limit = 20
 		}
+		if limit > 100 {
+			limit = 100
+		}
 		offset, err := strconv.Atoi(offsetStr)
 		if err != nil || offset < 0 {
 			offset = 0
@@ -172,13 +191,13 @@ func ListTemplates(templateService services.TemplateServiceInterface) gin.Handle
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user_id"})
 				return
 			}
-			templates, err = templateService.ListTemplatesByUser(c.Request.Context(), int32(userID), int32(limit), int32(offset))
+			templates, err = templateService.ListTemplatesByUser(c.Request.Context(), int32(userID), RequesterID(c), int32(limit), int32(offset))
 		} else {
 			templates, err = templateService.ListPublicTemplates(c.Request.Context(), int32(limit), int32(offset))
 		}
 
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondError(c, err)
 			return
 		}
 		if len(templates) == 0 {

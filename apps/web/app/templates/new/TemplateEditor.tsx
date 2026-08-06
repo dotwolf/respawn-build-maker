@@ -128,7 +128,28 @@ export function TemplateEditor({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [panelWidths, setPanelWidths] = useState({ left: 25, middle: 50, right: 25 });
   const [draggingDivider, setDraggingDivider] = useState<'left' | 'right' | null>(null);
+  const [creatorUserId, setCreatorUserId] = useState<number | null>(null);
+  const [templateLoaded, setTemplateLoaded] = useState(false);
+  const [loadedSnapshot, setLoadedSnapshot] = useState<string | null>(
+    mode === 'create'
+      ? JSON.stringify({ name: '', description: '', isPrivate: false, slots: [], constraints: [], components: [], templateStats: [] })
+      : null
+  );
   const editorShellRef = useRef<HTMLDivElement | null>(null);
+
+  const currentSnapshot = useMemo(
+    () => JSON.stringify({ name, description, isPrivate, slots, constraints, components, templateStats }),
+    [name, description, isPrivate, slots, constraints, components, templateStats]
+  );
+
+  const isCreator = mode === 'view' && auth?.user != null && creatorUserId != null && creatorUserId === auth.user.id;
+  const hasUnsavedChanges = loadedSnapshot !== null && currentSnapshot !== loadedSnapshot;
+
+  useEffect(() => {
+    if (!templateLoaded) return;
+    setLoadedSnapshot(currentSnapshot);
+    setTemplateLoaded(false);
+  }, [templateLoaded, currentSnapshot]);
 
   // Automatically derive all unique stats defined across components (guaranteed array fallback)
   const derivedStats = useMemo(() => {
@@ -206,6 +227,8 @@ export function TemplateEditor({
         setConstraints(Array.isArray(rules.constraints) ? rules.constraints : []);
         setComponents(Array.isArray(template.components) ? template.components : []);
         setTemplateStats(normalizeTemplateStats(template.stats));
+        setCreatorUserId(template.creator_user_id ?? null);
+        setTemplateLoaded(true);
       })
       .catch((error) => notify(error instanceof Error ? error.message : 'Failed to load template.', 'error'));
   }, [templateId, notify]);
@@ -238,14 +261,7 @@ export function TemplateEditor({
   // Warn user before leaving page if there are unsaved changes
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      const hasUnsavedContent =
-        name.trim() !== '' ||
-        description.trim() !== '' ||
-        slots.length > 0 ||
-        constraints.length > 0 ||
-        components.length > 0;
-
-      if (hasUnsavedContent && !isSubmitting) {
+      if (hasUnsavedChanges && !isSubmitting) {
         event.preventDefault();
         event.returnValue = '';
       }
@@ -255,7 +271,7 @@ export function TemplateEditor({
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [name, description, slots, constraints, components, isSubmitting]);
+  }, [hasUnsavedChanges, isSubmitting]);
 
   // Panel Resizing via Pointer Events
   useEffect(() => {
@@ -388,7 +404,6 @@ export function TemplateEditor({
         body: JSON.stringify({
           name,
           description,
-          creator_user_id: auth.user.id,
           rules: { slots, constraints },
           is_private: isPrivate,
           stats: payloadStats,
@@ -398,13 +413,26 @@ export function TemplateEditor({
 
       const savedTemplateId = response.id;
 
-      notify(mode === 'edit' ? 'Template updated successfully.' : 'Template created successfully.', 'success');
-      router.replace(`/templates/${savedTemplateId}`);
+      if (mode === 'edit') {
+        notify('Template updated successfully.', 'success');
+        setLoadedSnapshot(currentSnapshot);
+        setIsSubmitting(false);
+      } else {
+        notify('Template created successfully.', 'success');
+        router.replace(`/templates/${savedTemplateId}/edit`);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create template.';
       notify(message, 'error');
       setIsSubmitting(false);
     }
+  };
+
+  const handleSwitchToView = () => {
+    if (hasUnsavedChanges && !window.confirm('You have unsaved changes. Switch to view mode anyway?')) {
+      return;
+    }
+    if (templateId) router.push(`/templates/${templateId}`);
   };
 
   const handleDeleteTemplate = async () => {
@@ -521,24 +549,56 @@ export function TemplateEditor({
               readOnly={mode === 'view'}
             />
 
-            {mode === 'view' && templateId && <div className="editor-footer">
-              <div><h3>Ready to build?</h3><p className="panel-subtitle">Use this template to create a build.</p></div>
-              <button type="button" onClick={() => router.push(`/templates/${templateId}/builds/new`)}>Create Build</button>
-            </div>}
-
-            {mode !== 'view' && <div className="editor-footer">
-              <div>
-                <h3>Finish Template</h3>
-                <p className="panel-subtitle">
-                  {mode === 'edit' ? 'Save changes to this template.' : 'Once the layout and component pool are ready, publish the template.'}
-                </p>
+            {mode === 'view' && templateId && (
+              <div className={isCreator ? 'editor-footer-split' : 'editor-footer'}>
+                <div className="editor-footer-cell">
+                  <div>
+                    <h3>Ready to build?</h3>
+                    <p className="panel-subtitle">Use this template to create a build.</p>
+                  </div>
+                  <button type="button" onClick={() => router.push(`/templates/${templateId}/builds/new`)}>
+                    Create Build
+                  </button>
+                </div>
+                {isCreator && (
+                  <div className="editor-footer-cell">
+                    <div>
+                      <h3>Switch to edit mode</h3>
+                      <p className="panel-subtitle">Make changes to this template.</p>
+                    </div>
+                    <button type="button" onClick={() => router.push(`/templates/${templateId}/edit`)}>
+                      Edit Template
+                    </button>
+                  </div>
+                )}
               </div>
-              <button type="button" onClick={handleSubmit} disabled={isSubmitting}>
-                {isSubmitting ? 'Saving...' : mode === 'edit' ? 'Save Template' : 'Finish Template'}
-              </button>
-              {mode === 'edit' && <button type="button" className="secondary danger" onClick={handleDeleteTemplate}>Delete Template</button>}
-            </div>
-            }
+            )}
+
+            {mode !== 'view' && (
+              <div className="editor-footer">
+                <div>
+                  <h3>Finish Template</h3>
+                  <p className="panel-subtitle">
+                    {mode === 'edit' ? 'Save changes to this template.' : 'Once the layout and component pool are ready, publish the template.'}
+                  </p>
+                </div>
+                <div className="page-actions">
+                  {mode === 'edit' && (
+                    <button type="button" className="button secondary" onClick={handleSwitchToView}>
+                      Switch to view mode
+                    </button>
+                  )}
+                  <button type="button" onClick={handleSubmit} disabled={isSubmitting}>
+                    {isSubmitting ? 'Saving...' : mode === 'edit' ? 'Save Template' : 'Finish Template'}
+                  </button>
+                  {mode === 'edit' && (
+                    <button type="button" className="secondary danger" onClick={handleDeleteTemplate}>
+                      Delete Template
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </section>
         </div>
       </main>

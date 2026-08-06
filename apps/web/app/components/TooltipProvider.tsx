@@ -73,10 +73,12 @@ const getEffectValueClass = (val: number | string): string => {
   return '#fff'; // Default stat value color
 };
 
-const formatEffectValue = (type: string, value: number): string => {
-  if (type === 'percent_add') return `${value > 0 ? '+' : ''}${value}%`;
-  if (type === 'multiplier') return `x${value}`;
-  return `${value > 0 ? '+' : ''}${value}`;
+const formatEffectValue = (type: string, value: number | string): string => {
+  const num = typeof value === 'number' ? value : parseFloat(value);
+  if (Number.isNaN(num)) return `${value}`;
+  if (type === 'percent_add') return `${num > 0 ? '+' : ''}${num}%`;
+  if (type === 'multiplier') return `x${num}`;
+  return `${num > 0 ? '+' : ''}${num}`;
 };
 
 // --- Context Definition ---
@@ -266,9 +268,7 @@ export function TooltipProvider({ children }: { children: React.ReactNode }) {
                           color: getEffectValueClass(effect.value),
                         }}
                       >
-                        {effect.type === 'percent_add' && `+${effect.value}%`}
-                        {effect.type === 'multiplier' && `x${effect.value}`}
-                        {effect.type === 'flat' && `+${effect.value}`}
+                        {formatEffectValue(effect.type, effect.value)}
                       </span>
                     </div>
                   ))

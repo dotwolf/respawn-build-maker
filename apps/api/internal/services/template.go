@@ -10,6 +10,7 @@ import (
 	"main/apps/api/internal/dto"
 	"main/apps/api/internal/repository"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -27,19 +28,19 @@ func NewTemplateService(pool *pgxpool.Pool) *TemplateService {
 }
 
 // CreateTemplateWithComponents wraps template and component creation in a single transaction
-func (s *TemplateService) CreateTemplateWithComponents(ctx context.Context, req *dto.TemplateCreateRequest) (*dto.TemplateResponse, error) {
+func (s *TemplateService) CreateTemplateWithComponents(ctx context.Context, creatorUserID int32, req *dto.TemplateCreateRequest) (*dto.TemplateResponse, error) {
 	if req == nil {
-		return nil, fmt.Errorf("request is required")
+		return nil, validationError("request is required")
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, fmt.Errorf("template name is required")
+		return nil, validationError("template name is required")
 	}
-	if req.CreatorUserID <= 0 {
-		return nil, fmt.Errorf("creator user id is required")
+	if creatorUserID <= 0 {
+		return nil, validationError("creator user id is required")
 	}
 	if len(req.Components) == 0 {
-		return nil, fmt.Errorf("at least one component is required")
+		return nil, validationError("at least one component is required")
 	}
 
 	// 1. Begin Database Transaction using s.pool
@@ -70,7 +71,7 @@ func (s *TemplateService) CreateTemplateWithComponents(ctx context.Context, req 
 		ID:            templateID,
 		Name:          name,
 		Description:   descValue,
-		CreatorUserID: req.CreatorUserID,
+		CreatorUserID: creatorUserID,
 		Stats:         statsValue,
 		Rules:         []byte(req.Rules),
 		Components:    []byte("[]"),
@@ -87,11 +88,11 @@ func (s *TemplateService) CreateTemplateWithComponents(ctx context.Context, req 
 	for _, comp := range req.Components {
 		compName := strings.TrimSpace(comp.Name)
 		if compName == "" {
-			return nil, fmt.Errorf("component name is required")
+			return nil, validationError("component name is required")
 		}
 		compCategory := strings.TrimSpace(comp.Category)
 		if compCategory == "" {
-			return nil, fmt.Errorf("component category is required")
+			return nil, validationError("component category is required")
 		}
 
 		var levelScalingValue pgtype.Text
@@ -145,16 +146,16 @@ func (s *TemplateService) CreateTemplateWithComponents(ctx context.Context, req 
 	return dto.ToTemplateResponse(&template, createdComponents), nil
 }
 
-func (s *TemplateService) CreateTemplate(ctx context.Context, req *dto.TemplateCreateRequest) (*dto.TemplateResponse, error) {
+func (s *TemplateService) CreateTemplate(ctx context.Context, creatorUserID int32, req *dto.TemplateCreateRequest) (*dto.TemplateResponse, error) {
 	if req == nil {
-		return nil, fmt.Errorf("request is required")
+		return nil, validationError("request is required")
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, fmt.Errorf("template name is required")
+		return nil, validationError("template name is required")
 	}
-	if req.CreatorUserID <= 0 {
-		return nil, fmt.Errorf("creator user id is required")
+	if creatorUserID <= 0 {
+		return nil, validationError("creator user id is required")
 	}
 
 	now := time.Now()
@@ -163,7 +164,7 @@ func (s *TemplateService) CreateTemplate(ctx context.Context, req *dto.TemplateC
 	template, err := s.queries.CreateTemplate(ctx, repository.CreateTemplateParams{
 		ID:            templateID,
 		Name:          name,
-		CreatorUserID: req.CreatorUserID,
+		CreatorUserID: creatorUserID,
 		Stats:         []byte("[]"),
 		Components:    []byte("[]"),
 		CreatedAt:     pgtype.Timestamptz{Time: now, Valid: true},
@@ -179,17 +180,39 @@ func (s *TemplateService) CreateTemplate(ctx context.Context, req *dto.TemplateC
 
 func (s *TemplateService) GetTemplateByID(ctx context.Context, id string) (*dto.TemplateResponse, error) {
 	if strings.TrimSpace(id) == "" {
-		return nil, fmt.Errorf("template id is required")
+		return nil, validationError("template id is required")
 	}
 
 	template, err := s.queries.GetTemplateByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+	return s.templateResponseWithComponents(ctx, &template)
+}
 
+// GetTemplateByIDForUser returns a template the requester is allowed to see:
+// any public template, or the requester's own private templates. Private
+// templates that do not belong to the requester surface as not found so the
+// resource's existence is not disclosed.
+func (s *TemplateService) GetTemplateByIDForUser(ctx context.Context, id string, requesterID int32) (*dto.TemplateResponse, error) {
+	if strings.TrimSpace(id) == "" {
+		return nil, validationError("template id is required")
+	}
+
+	template, err := s.queries.GetTemplateByIDAny(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if template.IsPrivate && requesterID != template.CreatorUserID {
+		return nil, ErrNotFound
+	}
+	return s.templateResponseWithComponents(ctx, &template)
+}
+
+func (s *TemplateService) templateResponseWithComponents(ctx context.Context, template *repository.Template) (*dto.TemplateResponse, error) {
 	// Fetch associated components for full view
 	dbComponents, err := s.queries.ListComponentsByTemplate(ctx, repository.ListComponentsByTemplateParams{
-		TemplateID: id,
+		TemplateID: template.ID,
 		Limit:      100,
 		Offset:     0,
 	})
@@ -228,12 +251,12 @@ func (s *TemplateService) GetTemplateByID(ctx context.Context, id string) (*dto.
 		})
 	}
 
-	return dto.ToTemplateResponse(&template, components), nil
+	return dto.ToTemplateResponse(template, components), nil
 }
 
-func (s *TemplateService) ListTemplatesByUser(ctx context.Context, creatorUserID int32, limit int32, offset int32) ([]*dto.TemplateResponse, error) {
+func (s *TemplateService) ListTemplatesByUser(ctx context.Context, creatorUserID int32, requesterID int32, limit int32, offset int32) ([]*dto.TemplateResponse, error) {
 	if creatorUserID <= 0 {
-		return nil, fmt.Errorf("creator user id is required")
+		return nil, validationError("creator user id is required")
 	}
 	if limit <= 0 {
 		limit = 20
@@ -244,6 +267,7 @@ func (s *TemplateService) ListTemplatesByUser(ctx context.Context, creatorUserID
 
 	templates, err := s.queries.ListTemplatesByUser(ctx, repository.ListTemplatesByUserParams{
 		CreatorUserID: creatorUserID,
+		RequesterID:   requesterID,
 		Limit:         limit,
 		Offset:        offset,
 	})
@@ -288,16 +312,27 @@ func (s *TemplateService) usernamesByIDs(ctx context.Context, templates []reposi
 	return result, nil
 }
 
-func (s *TemplateService) UpdateTemplate(ctx context.Context, req *dto.TemplateUpdateRequest) (*dto.TemplateResponse, error) {
+func (s *TemplateService) UpdateTemplate(ctx context.Context, actorID int32, req *dto.TemplateUpdateRequest) (*dto.TemplateResponse, error) {
 	if req == nil {
-		return nil, fmt.Errorf("request is required")
+		return nil, validationError("request is required")
 	}
 	if strings.TrimSpace(req.ID) == "" {
-		return nil, fmt.Errorf("template id is required")
+		return nil, validationError("template id is required")
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, fmt.Errorf("template name is required")
+		return nil, validationError("template name is required")
+	}
+
+	creatorID, err := s.queries.GetTemplateCreatorByID(ctx, req.ID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if creatorID != actorID {
+		return nil, ErrForbidden
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -345,11 +380,11 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, req *dto.TemplateU
 	for _, comp := range req.Components {
 		compName := strings.TrimSpace(comp.Name)
 		if compName == "" {
-			return nil, fmt.Errorf("component name is required")
+			return nil, validationError("component name is required")
 		}
 		compCategory := strings.TrimSpace(comp.Category)
 		if compCategory == "" {
-			return nil, fmt.Errorf("component category is required")
+			return nil, validationError("component category is required")
 		}
 
 		var levelScalingValue pgtype.Text
@@ -409,24 +444,36 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, req *dto.TemplateU
 	return dto.ToTemplateResponse(&template, updatedComponents), nil
 }
 
-func (s *TemplateService) DeleteTemplate(ctx context.Context, id string) error {
+func (s *TemplateService) DeleteTemplate(ctx context.Context, actorID int32, id string) error {
 	if strings.TrimSpace(id) == "" {
-		return fmt.Errorf("template id is required")
+		return validationError("template id is required")
 	}
+
+	creatorID, err := s.queries.GetTemplateCreatorByID(ctx, id)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return ErrNotFound
+		}
+		return err
+	}
+	if creatorID != actorID {
+		return ErrForbidden
+	}
+
 	return s.queries.DeleteTemplate(ctx, id)
 }
 
 func (s *TemplateService) CreateComponent(ctx context.Context, templateID string, name string, category string, effects []byte, hasLevels bool, levelScaling *string, levelRule []byte, isDeleted bool) (*repository.Component, error) {
 	if strings.TrimSpace(templateID) == "" {
-		return nil, fmt.Errorf("template id is required")
+		return nil, validationError("template id is required")
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil, fmt.Errorf("component name is required")
+		return nil, validationError("component name is required")
 	}
 	category = strings.TrimSpace(category)
 	if category == "" {
-		return nil, fmt.Errorf("component category is required")
+		return nil, validationError("component category is required")
 	}
 
 	now := time.Now()
@@ -456,10 +503,10 @@ func (s *TemplateService) CreateComponent(ctx context.Context, templateID string
 
 func (s *TemplateService) GetComponentByID(ctx context.Context, templateID string, componentID int64) (*repository.Component, error) {
 	if strings.TrimSpace(templateID) == "" {
-		return nil, fmt.Errorf("template id is required")
+		return nil, validationError("template id is required")
 	}
 	if componentID <= 0 {
-		return nil, fmt.Errorf("component id is required")
+		return nil, validationError("component id is required")
 	}
 
 	component, err := s.queries.GetComponentByID(ctx, repository.GetComponentByIDParams{ID: componentID, TemplateID: templateID})
@@ -471,7 +518,7 @@ func (s *TemplateService) GetComponentByID(ctx context.Context, templateID strin
 
 func (s *TemplateService) ListComponentsByTemplate(ctx context.Context, templateID string, limit int32, offset int32) ([]*repository.Component, error) {
 	if strings.TrimSpace(templateID) == "" {
-		return nil, fmt.Errorf("template id is required")
+		return nil, validationError("template id is required")
 	}
 	if limit <= 0 {
 		limit = 20
@@ -510,18 +557,18 @@ func (s *TemplateService) ListComponentsByTemplate(ctx context.Context, template
 
 func (s *TemplateService) UpdateComponent(ctx context.Context, templateID string, componentID int64, name string, category string, effects []byte, hasLevels bool, levelScaling *string, levelRule []byte, isDeleted bool) (*repository.Component, error) {
 	if strings.TrimSpace(templateID) == "" {
-		return nil, fmt.Errorf("template id is required")
+		return nil, validationError("template id is required")
 	}
 	if componentID <= 0 {
-		return nil, fmt.Errorf("component id is required")
+		return nil, validationError("component id is required")
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil, fmt.Errorf("component name is required")
+		return nil, validationError("component name is required")
 	}
 	category = strings.TrimSpace(category)
 	if category == "" {
-		return nil, fmt.Errorf("component category is required")
+		return nil, validationError("component category is required")
 	}
 
 	now := time.Now()
@@ -551,10 +598,10 @@ func (s *TemplateService) UpdateComponent(ctx context.Context, templateID string
 
 func (s *TemplateService) DeleteComponent(ctx context.Context, templateID string, componentID int64) error {
 	if strings.TrimSpace(templateID) == "" {
-		return fmt.Errorf("template id is required")
+		return validationError("template id is required")
 	}
 	if componentID <= 0 {
-		return fmt.Errorf("component id is required")
+		return validationError("component id is required")
 	}
 	return s.queries.DeleteComponent(ctx, repository.DeleteComponentParams{ID: componentID, TemplateID: templateID})
 }

@@ -9,14 +9,17 @@ import { apiFetch } from '../../../../lib/api';
 import { useNotification } from '../../../../components/NotificationProvider';
 import FormulaHelp from '../../../../components/FormulaHelp';
 import {
+  collectClassPoints,
   computeSlotRules,
   computeStats,
   formatEffectValue,
+  formatStatSummary,
   getDistributionBreakdown,
   getSealedBy,
   getSlotRules,
   levelLabel,
   mergeSlotRules,
+  statQuality,
 } from '../../../../lib/buildMath';
 import type { EquippedEntry, StatSummary } from '../../../../lib/buildMath';
 import { normalizeTemplateStats, orderStats, shouldShowStatDivider, statGroupOf, statIsNegative } from '../../../../lib/stats';
@@ -372,13 +375,13 @@ export default function TemplateBuildDetailPage() {
                 const prev = index > 0 ? orderedStats[index - 1] : undefined;
                 const group = statGroupOf(templateStats, summary.stat);
                 const negative = statIsNegative(templateStats, summary.stat);
-                const valueClass = negative
-                  ? summary.final > 0
-                    ? 'build-stat-value-bad'
-                    : summary.final < 0
-                      ? 'build-stat-value-good'
-                      : ''
-                  : '';
+                const quality = statQuality(summary, negative);
+                const valueClass =
+                  quality === 'good'
+                    ? 'build-stat-value-good'
+                    : quality === 'bad'
+                      ? 'build-stat-value-bad'
+                      : '';
                 return (
                   <div key={summary.stat}>
                     {shouldShowStatDivider(
@@ -386,7 +389,7 @@ export default function TemplateBuildDetailPage() {
                       { group }
                     ) && (
                       <div className="build-stat-group-divider">
-                        {group ? <span>{group}</span> : null}
+                        {group ? <span className="build-stat-group-divider-label">{group}</span> : null}
                       </div>
                     )}
                     <div
@@ -406,12 +409,33 @@ export default function TemplateBuildDetailPage() {
                         )}
                       </span>
                       <span className={`build-stat-value${valueClass ? ` ${valueClass}` : ''}`}>
-                        {summary.final}
+                        {formatStatSummary(summary)}
                       </span>
                     </div>
                   </div>
                 );
               })}
+
+              {(() => {
+                const classPoints = collectClassPoints(slots, slotLevels, slotDistribution);
+                if (classPoints.length === 0) return null;
+                return (
+                  <>
+                    <div className="build-stat-group-divider">
+                      <span className="build-stat-group-divider-label">Class distributed points</span>
+                    </div>
+                    {classPoints.map(({ slot, className, allocated }) => (
+                      <div key={`${slot}-${className}`} className="build-stat-row">
+                        <span className="build-stat-name">
+                          {className}
+                          <span className="build-class-point-slot">· {slot}</span>
+                        </span>
+                        <span className="build-stat-value">+{allocated}</span>
+                      </div>
+                    ))}
+                  </>
+                );
+              })()}
             </div>
           )}
 

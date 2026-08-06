@@ -12,26 +12,29 @@ type UserServiceInterface interface {
 	GetUserById(ctx context.Context, id int32) (*dto.PublicProfileResponse, error)
 	GetPrivateUserByID(ctx context.Context, id int32) (*dto.PrivateProfileResponse, error)
 	DeleteUser(ctx context.Context, id int32) error
+	UpdateUsername(ctx context.Context, userID int32, req *dto.UpdateUsernameRequest) (*dto.PrivateProfileResponse, error)
 	ListUsers(ctx context.Context, params repository.ListUsersParams) ([]*dto.PublicProfileResponse, error)
 }
 
 type AuthServiceInterface interface {
 	Login(ctx context.Context, req *dto.LoginRequest) (string, *dto.PrivateProfileResponse, error)
+	LoginWithGoogle(ctx context.Context, req *dto.GoogleLoginRequest) (string, *dto.PrivateProfileResponse, error)
 }
 
 type TemplateServiceInterface interface {
-	CreateTemplate(ctx context.Context, req *dto.TemplateCreateRequest) (*dto.TemplateResponse, error)
-	CreateTemplateWithComponents(ctx context.Context, req *dto.TemplateCreateRequest) (*dto.TemplateResponse, error)
+	CreateTemplate(ctx context.Context, creatorUserID int32, req *dto.TemplateCreateRequest) (*dto.TemplateResponse, error)
+	CreateTemplateWithComponents(ctx context.Context, creatorUserID int32, req *dto.TemplateCreateRequest) (*dto.TemplateResponse, error)
 	GetTemplateByID(ctx context.Context, id string) (*dto.TemplateResponse, error)
-	ListTemplatesByUser(ctx context.Context, creatorUserID int32, limit int32, offset int32) ([]*dto.TemplateResponse, error)
+	GetTemplateByIDForUser(ctx context.Context, id string, requesterID int32) (*dto.TemplateResponse, error)
+	ListTemplatesByUser(ctx context.Context, creatorUserID int32, requesterID int32, limit int32, offset int32) ([]*dto.TemplateResponse, error)
 	ListPublicTemplates(ctx context.Context, limit int32, offset int32) ([]*dto.TemplateResponse, error)
-	UpdateTemplate(ctx context.Context, req *dto.TemplateUpdateRequest) (*dto.TemplateResponse, error)
-	DeleteTemplate(ctx context.Context, id string) error
+	UpdateTemplate(ctx context.Context, actorID int32, req *dto.TemplateUpdateRequest) (*dto.TemplateResponse, error)
+	DeleteTemplate(ctx context.Context, actorID int32, id string) error
 }
 
 type BuildServiceInterface interface {
-	CreateBuild(ctx context.Context, templateID string, req *dto.BuildCreateRequest) (*dto.BuildResponse, error)
-	GetBuildByID(ctx context.Context, templateID, id string) (*dto.BuildResponse, error)
-	ListBuildsByTemplate(ctx context.Context, templateID string, limit int32, offset int32) ([]*dto.BuildResponse, error)
+	CreateBuild(ctx context.Context, templateID string, creatorUserID int32, req *dto.BuildCreateRequest) (*dto.BuildResponse, error)
+	GetBuildByID(ctx context.Context, templateID, id string, requesterID int32) (*dto.BuildResponse, error)
+	ListBuildsByTemplate(ctx context.Context, templateID string, requesterID int32, limit int32, offset int32) ([]*dto.BuildResponse, error)
 	ListBuildsByUser(ctx context.Context, creatorUserID int32, limit int32, offset int32) ([]*dto.BuildResponse, error)
 }

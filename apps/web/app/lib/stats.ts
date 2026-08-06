@@ -48,15 +48,16 @@ export function orderStats<T>(items: T[], defs: StatDefinition[], getName: (item
 }
 
 /**
- * Renders a group divider between consecutive stats when their group differs or
- * the previous stat is ungrouped (ungrouped stats are divided too).
+ * Renders a group divider at the start of every group block (even the first
+ * stat of the list) and at the boundary into an ungrouped block. Consecutive
+ * stats in the same group flow together with no divider.
  */
 export function shouldShowStatDivider(
   prev: { group?: string } | undefined,
   curr: { group?: string }
 ): boolean {
-  if (!prev) return false;
+  if (!prev) return Boolean(curr.group);
   const prevGroup = prev.group ?? '';
   const currGroup = curr.group ?? '';
-  return prevGroup !== currGroup || prevGroup === '';
+  return prevGroup !== currGroup;
 }

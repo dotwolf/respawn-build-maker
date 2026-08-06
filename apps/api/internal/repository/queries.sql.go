@@ -239,17 +239,19 @@ INSERT INTO users (
     username,
     email,
     password,
+    google_sub,
     created_at,
     updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5
-) RETURNING id, username, email, password, created_at, updated_at
+    $1, $2, $3, $4, $5, $6
+) RETURNING id, username, email, password, google_sub, created_at, updated_at
 `
 
 type CreateUserParams struct {
 	Username  string
 	Email     string
 	Password  string
+	GoogleSub pgtype.Text
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
 }
@@ -259,6 +261,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		arg.Username,
 		arg.Email,
 		arg.Password,
+		arg.GoogleSub,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -268,6 +271,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.Username,
 		&i.Email,
 		&i.Password,
+		&i.GoogleSub,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -409,6 +413,46 @@ func (q *Queries) GetBuildByID(ctx context.Context, id string) (GetBuildByIDRow,
 	return i, err
 }
 
+const getBuildByIDAny = `-- name: GetBuildByIDAny :one
+SELECT id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
+FROM builds
+WHERE id = $1
+LIMIT 1
+`
+
+type GetBuildByIDAnyRow struct {
+	ID            string
+	Name          string
+	Description   pgtype.Text
+	CreatorUserID int32
+	TemplateID    string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	Tags          []string
+	VoteScore     int32
+	Components    []byte
+	IsPrivate     bool
+}
+
+func (q *Queries) GetBuildByIDAny(ctx context.Context, id string) (GetBuildByIDAnyRow, error) {
+	row := q.db.QueryRow(ctx, getBuildByIDAny, id)
+	var i GetBuildByIDAnyRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatorUserID,
+		&i.TemplateID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Tags,
+		&i.VoteScore,
+		&i.Components,
+		&i.IsPrivate,
+	)
+	return i, err
+}
+
 const getBuildVote = `-- name: GetBuildVote :one
 SELECT user_id, build_id, value, created_at
 FROM build_votes
@@ -493,8 +537,47 @@ func (q *Queries) GetTemplateByID(ctx context.Context, id string) (Template, err
 	return i, err
 }
 
+const getTemplateByIDAny = `-- name: GetTemplateByIDAny :one
+SELECT id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
+FROM templates
+WHERE id = $1
+LIMIT 1
+`
+
+func (q *Queries) GetTemplateByIDAny(ctx context.Context, id string) (Template, error) {
+	row := q.db.QueryRow(ctx, getTemplateByIDAny, id)
+	var i Template
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatorUserID,
+		&i.Stats,
+		&i.Rules,
+		&i.Components,
+		&i.IsPrivate,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getTemplateCreatorByID = `-- name: GetTemplateCreatorByID :one
+SELECT creator_user_id
+FROM templates
+WHERE id = $1
+LIMIT 1
+`
+
+func (q *Queries) GetTemplateCreatorByID(ctx context.Context, id string) (int32, error) {
+	row := q.db.QueryRow(ctx, getTemplateCreatorByID, id)
+	var creator_user_id int32
+	err := row.Scan(&creator_user_id)
+	return creator_user_id, err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, email, password, created_at, updated_at
+SELECT id, username, email, password, google_sub, created_at, updated_at
 FROM users
 WHERE email = $1
 LIMIT 1
@@ -508,6 +591,29 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.Username,
 		&i.Email,
 		&i.Password,
+		&i.GoogleSub,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserByGoogleSub = `-- name: GetUserByGoogleSub :one
+SELECT id, username, email, password, google_sub, created_at, updated_at
+FROM users
+WHERE google_sub = $1
+LIMIT 1
+`
+
+func (q *Queries) GetUserByGoogleSub(ctx context.Context, googleSub pgtype.Text) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByGoogleSub, googleSub)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.Password,
+		&i.GoogleSub,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -515,7 +621,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, email, password, created_at, updated_at
+SELECT id, username, email, password, google_sub, created_at, updated_at
 FROM users
 WHERE id = $1
 LIMIT 1
@@ -529,6 +635,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id int32) (User, error) {
 		&i.Username,
 		&i.Email,
 		&i.Password,
+		&i.GoogleSub,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -536,7 +643,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id int32) (User, error) {
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, email, password, created_at, updated_at
+SELECT id, username, email, password, google_sub, created_at, updated_at
 FROM users
 WHERE username = $1
 LIMIT 1
@@ -550,6 +657,7 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.Username,
 		&i.Email,
 		&i.Password,
+		&i.GoogleSub,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -557,7 +665,7 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 }
 
 const getUsersByIDs = `-- name: GetUsersByIDs :many
-SELECT id, username, email, created_at, updated_at
+SELECT id, username, email, google_sub, created_at, updated_at
 FROM users
 WHERE id = ANY($1::int[])
 ORDER BY created_at DESC
@@ -567,6 +675,7 @@ type GetUsersByIDsRow struct {
 	ID        int32
 	Username  string
 	Email     string
+	GoogleSub pgtype.Text
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
 }
@@ -584,6 +693,7 @@ func (q *Queries) GetUsersByIDs(ctx context.Context, dollar_1 []int32) ([]GetUse
 			&i.ID,
 			&i.Username,
 			&i.Email,
+			&i.GoogleSub,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -595,6 +705,34 @@ func (q *Queries) GetUsersByIDs(ctx context.Context, dollar_1 []int32) ([]GetUse
 		return nil, err
 	}
 	return items, nil
+}
+
+const linkUserGoogleSub = `-- name: LinkUserGoogleSub :one
+UPDATE users
+SET google_sub = $1, updated_at = $2
+WHERE id = $3
+RETURNING id, username, email, password, google_sub, created_at, updated_at
+`
+
+type LinkUserGoogleSubParams struct {
+	GoogleSub pgtype.Text
+	UpdatedAt pgtype.Timestamptz
+	ID        int32
+}
+
+func (q *Queries) LinkUserGoogleSub(ctx context.Context, arg LinkUserGoogleSubParams) (User, error) {
+	row := q.db.QueryRow(ctx, linkUserGoogleSub, arg.GoogleSub, arg.UpdatedAt, arg.ID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.Email,
+		&i.Password,
+		&i.GoogleSub,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const listBuildSlotsByBuild = `-- name: ListBuildSlotsByBuild :many
@@ -634,15 +772,16 @@ func (q *Queries) ListBuildSlotsByBuild(ctx context.Context, buildID string) ([]
 const listBuildsByTemplate = `-- name: ListBuildsByTemplate :many
 SELECT id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
 FROM builds
-WHERE template_id = $1 AND is_private = FALSE
+WHERE template_id = $1 AND (is_private = FALSE OR creator_user_id = $2)
 ORDER BY created_at DESC
-LIMIT $2 OFFSET $3
+LIMIT $4 OFFSET $3
 `
 
 type ListBuildsByTemplateParams struct {
-	TemplateID string
-	Limit      int32
-	Offset     int32
+	TemplateID  string
+	RequesterID int32
+	Offset      int32
+	Limit       int32
 }
 
 type ListBuildsByTemplateRow struct {
@@ -660,7 +799,12 @@ type ListBuildsByTemplateRow struct {
 }
 
 func (q *Queries) ListBuildsByTemplate(ctx context.Context, arg ListBuildsByTemplateParams) ([]ListBuildsByTemplateRow, error) {
-	rows, err := q.db.Query(ctx, listBuildsByTemplate, arg.TemplateID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listBuildsByTemplate,
+		arg.TemplateID,
+		arg.RequesterID,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -848,19 +992,25 @@ func (q *Queries) ListPublicTemplates(ctx context.Context, arg ListPublicTemplat
 const listTemplatesByUser = `-- name: ListTemplatesByUser :many
 SELECT id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
 FROM templates
-WHERE creator_user_id = $1 AND is_private = FALSE
+WHERE creator_user_id = $1 AND (is_private = FALSE OR $2::integer = creator_user_id)
 ORDER BY created_at DESC
-LIMIT $2 OFFSET $3
+LIMIT $4 OFFSET $3
 `
 
 type ListTemplatesByUserParams struct {
 	CreatorUserID int32
-	Limit         int32
+	RequesterID   int32
 	Offset        int32
+	Limit         int32
 }
 
 func (q *Queries) ListTemplatesByUser(ctx context.Context, arg ListTemplatesByUserParams) ([]Template, error) {
-	rows, err := q.db.Query(ctx, listTemplatesByUser, arg.CreatorUserID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listTemplatesByUser,
+		arg.CreatorUserID,
+		arg.RequesterID,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -891,7 +1041,7 @@ func (q *Queries) ListTemplatesByUser(ctx context.Context, arg ListTemplatesByUs
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, username, email, created_at, updated_at
+SELECT id, username, email, google_sub, created_at, updated_at
 FROM users
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
@@ -906,6 +1056,7 @@ type ListUsersRow struct {
 	ID        int32
 	Username  string
 	Email     string
+	GoogleSub pgtype.Text
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
 }
@@ -923,6 +1074,7 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUse
 			&i.ID,
 			&i.Username,
 			&i.Email,
+			&i.GoogleSub,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -1174,15 +1326,17 @@ SET
     username = COALESCE($1, username),
     email = COALESCE($2, email),
     password = COALESCE($3, password),
-    updated_at = $4
-WHERE id = $5
-RETURNING id, username, email, password, created_at, updated_at
+    google_sub = COALESCE($4, google_sub),
+    updated_at = $5
+WHERE id = $6
+RETURNING id, username, email, password, google_sub, created_at, updated_at
 `
 
 type UpdateUserParams struct {
 	Username  string
 	Email     string
 	Password  string
+	GoogleSub pgtype.Text
 	UpdatedAt pgtype.Timestamptz
 	ID        int32
 }
@@ -1192,6 +1346,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		arg.Username,
 		arg.Email,
 		arg.Password,
+		arg.GoogleSub,
 		arg.UpdatedAt,
 		arg.ID,
 	)
@@ -1201,6 +1356,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.Username,
 		&i.Email,
 		&i.Password,
+		&i.GoogleSub,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -1211,7 +1367,7 @@ const updateUserEmail = `-- name: UpdateUserEmail :one
 UPDATE users
 SET email = $1, updated_at = $2
 WHERE id = $3
-RETURNING id, username, email, password, created_at, updated_at
+RETURNING id, username, email, password, google_sub, created_at, updated_at
 `
 
 type UpdateUserEmailParams struct {
@@ -1228,6 +1384,7 @@ func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams
 		&i.Username,
 		&i.Email,
 		&i.Password,
+		&i.GoogleSub,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -1238,7 +1395,7 @@ const updateUserPassword = `-- name: UpdateUserPassword :one
 UPDATE users
 SET password = $1, updated_at = $2
 WHERE id = $3
-RETURNING id, username, email, password, created_at, updated_at
+RETURNING id, username, email, password, google_sub, created_at, updated_at
 `
 
 type UpdateUserPasswordParams struct {
@@ -1255,6 +1412,7 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 		&i.Username,
 		&i.Email,
 		&i.Password,
+		&i.GoogleSub,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -1265,7 +1423,7 @@ const updateUserUsername = `-- name: UpdateUserUsername :one
 UPDATE users
 SET username = $1, updated_at = $2
 WHERE id = $3
-RETURNING id, username, email, password, created_at, updated_at
+RETURNING id, username, email, password, google_sub, created_at, updated_at
 `
 
 type UpdateUserUsernameParams struct {
@@ -1282,6 +1440,7 @@ func (q *Queries) UpdateUserUsername(ctx context.Context, arg UpdateUserUsername
 		&i.Username,
 		&i.Email,
 		&i.Password,
+		&i.GoogleSub,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

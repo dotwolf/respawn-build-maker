@@ -74,6 +74,7 @@ type User struct {
 	Username  string
 	Email     string
 	Password  string
+	GoogleSub pgtype.Text
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
 }
