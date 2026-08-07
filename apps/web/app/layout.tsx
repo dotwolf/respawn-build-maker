@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import Header from './components/Header';
 import {NotificationProvider} from './components/NotificationProvider';
+import {OptimizerStoreProvider} from './components/OptimizerStore';
 import './globals.css';
 
 export const metadata = {
@@ -16,8 +17,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body>
         <NotificationProvider>
-          <Header />
-          <div className="page-shell">{children}</div>
+          <OptimizerStoreProvider>
+            <Header />
+            <div className="page-shell">{children}</div>
+          </OptimizerStoreProvider>
         </NotificationProvider>
       </body>
     </html>

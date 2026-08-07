@@ -4,11 +4,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Check, Loader2, Lock, ShieldAlert, X } from 'lucide-react';
+import { Check, Loader2, Lock, ShieldAlert, Sparkles, X } from 'lucide-react';
 import { apiFetch } from '../../../../lib/api';
 import { useNotification } from '../../../../components/NotificationProvider';
 import { TooltipProvider, useTooltip } from '../../../../components/TooltipProvider';
 import FormulaHelp from '../../../../components/FormulaHelp';
+import BuildOptimizerModal from '../../../../components/BuildOptimizerModal';
 import type { Component, Constraint, Slot, SlotStats } from '../../../new/page';
 import {
   collectClassPoints,
@@ -150,6 +151,7 @@ function BuildEditor() {
   const [templateStats, setTemplateStats] = useState<StatDefinition[]>([]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [optimizerOpen, setOptimizerOpen] = useState(false);
   const [panelWidths, setPanelWidths] = useState({ left: 28, middle: 44, right: 28 });
   const [draggingDivider, setDraggingDivider] = useState<'left' | 'right' | null>(null);
   const editorShellRef = useRef<HTMLDivElement | null>(null);
@@ -1075,9 +1077,18 @@ function BuildEditor() {
               <p className="panel-subtitle">Find the best component combination for a target stat.</p>
             </div>
             <div className="empty-state optimizer-placeholder">
-              <ShieldAlert size={22} />
-              <p>Optimizer coming soon.</p>
-              <span>Pick a target stat and the optimizer will suggest the strongest loadout.</span>
+              <Sparkles size={22} />
+              <p>Optimize your build</p>
+              <span>Set stat priorities and the optimizer will suggest the strongest loadout.</span>
+              <button
+                type="button"
+                className="button secondary small"
+                style={{ justifySelf: 'center', marginBottom: 0 }}
+                onClick={() => setOptimizerOpen(true)}
+              >
+                <Sparkles size={14} style={{ verticalAlign: '-2px', marginRight: '.35rem' }} />
+                Open Optimizer
+              </button>
             </div>
           </section>
 
@@ -1457,6 +1468,35 @@ function BuildEditor() {
           </div>
         </div>
       )}
+
+      {optimizerOpen &&
+        createPortal(
+          <BuildOptimizerModal
+            templateId={templateId}
+            slots={slots}
+            components={components}
+            constraints={constraints}
+            templateStats={templateStats}
+            onClose={() => setOptimizerOpen(false)}
+            onApply={(build) => {
+              setEquipped(build.entries);
+              if (Object.keys(build.slotLevels).length > 0) {
+                setSlotLevels((prev) => ({ ...prev, ...build.slotLevels }));
+              }
+              if (Object.keys(build.slotDistribution).length > 0) {
+                setSlotDistribution((prev) => ({ ...prev, ...build.slotDistribution }));
+              }
+              setOptimizerOpen(false);
+              notify(
+                Object.keys(build.entries).length > 0
+                  ? `Optimized build applied — ${Object.keys(build.entries).length} components equipped, slot levels and points updated.`
+                  : 'Optimized build applied.',
+                'success'
+              );
+            }}
+          />,
+          document.body
+        )}
     </main>
   );
 }

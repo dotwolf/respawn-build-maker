@@ -180,7 +180,11 @@ function applyWholeDivision(expression: string): string {
   return working;
 }
 
+const formulaCache = new Map<string, number | null>();
+
 export function evaluateFormula(formula: string, variables: Record<string, number>): number | null {
+  const cacheKey = `${formula}\u0000${JSON.stringify(variables)}`;
+  if (formulaCache.has(cacheKey)) return formulaCache.get(cacheKey) ?? null;
   try {
     let expression = formula;
     for (const [key, value] of Object.entries(variables)) {
@@ -226,8 +230,11 @@ export function evaluateFormula(formula: string, variables: Record<string, numbe
       .map((fn, index) => `const Q${index}=${fn};`)
       .join('');
     const value = Function(`${FORMULA_HELPERS}${bindings}return (${wholeDivided});`)();
-    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+    const result = typeof value === 'number' && Number.isFinite(value) ? value : null;
+    formulaCache.set(cacheKey, result);
+    return result;
   } catch {
+    formulaCache.set(cacheKey, null);
     return null;
   }
 }
