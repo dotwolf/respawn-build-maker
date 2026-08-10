@@ -383,14 +383,13 @@ INSERT INTO templates (
     creator_user_id,
     stats,
     rules,
-    components,
     is_private,
     allow_suggestions,
     created_at,
     updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-) RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+) RETURNING id, name, description, creator_user_id, stats, rules, is_private, allow_suggestions, created_at, updated_at
 `
 
 type CreateTemplateParams struct {
@@ -400,7 +399,6 @@ type CreateTemplateParams struct {
 	CreatorUserID    int32
 	Stats            []byte
 	Rules            []byte
-	Components       []byte
 	IsPrivate        bool
 	AllowSuggestions bool
 	CreatedAt        pgtype.Timestamptz
@@ -415,7 +413,6 @@ func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) 
 		arg.CreatorUserID,
 		arg.Stats,
 		arg.Rules,
-		arg.Components,
 		arg.IsPrivate,
 		arg.AllowSuggestions,
 		arg.CreatedAt,
@@ -429,7 +426,6 @@ func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) 
 		&i.CreatorUserID,
 		&i.Stats,
 		&i.Rules,
-		&i.Components,
 		&i.IsPrivate,
 		&i.AllowSuggestions,
 		&i.CreatedAt,
@@ -795,7 +791,7 @@ func (q *Queries) GetSuggestionByID(ctx context.Context, id string) (TemplateSug
 }
 
 const getTemplateByID = `-- name: GetTemplateByID :one
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE id = $1 AND is_private = FALSE
 LIMIT 1
@@ -811,7 +807,6 @@ func (q *Queries) GetTemplateByID(ctx context.Context, id string) (Template, err
 		&i.CreatorUserID,
 		&i.Stats,
 		&i.Rules,
-		&i.Components,
 		&i.IsPrivate,
 		&i.AllowSuggestions,
 		&i.CreatedAt,
@@ -821,7 +816,7 @@ func (q *Queries) GetTemplateByID(ctx context.Context, id string) (Template, err
 }
 
 const getTemplateByIDAny = `-- name: GetTemplateByIDAny :one
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE id = $1
 LIMIT 1
@@ -837,7 +832,6 @@ func (q *Queries) GetTemplateByIDAny(ctx context.Context, id string) (Template, 
 		&i.CreatorUserID,
 		&i.Stats,
 		&i.Rules,
-		&i.Components,
 		&i.IsPrivate,
 		&i.AllowSuggestions,
 		&i.CreatedAt,
@@ -1511,7 +1505,7 @@ func (q *Queries) ListPublicBuildsByTemplate(ctx context.Context, arg ListPublic
 }
 
 const listPublicTemplates = `-- name: ListPublicTemplates :many
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE is_private = FALSE
 ORDER BY created_at DESC
@@ -1539,7 +1533,6 @@ func (q *Queries) ListPublicTemplates(ctx context.Context, arg ListPublicTemplat
 			&i.CreatorUserID,
 			&i.Stats,
 			&i.Rules,
-			&i.Components,
 			&i.IsPrivate,
 			&i.AllowSuggestions,
 			&i.CreatedAt,
@@ -1600,7 +1593,7 @@ func (q *Queries) ListSuggestionsByTemplate(ctx context.Context, arg ListSuggest
 }
 
 const listTemplatesByUser = `-- name: ListTemplatesByUser :many
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE creator_user_id = $1 AND (is_private = FALSE OR $2::integer = creator_user_id)
 ORDER BY created_at DESC
@@ -1635,7 +1628,6 @@ func (q *Queries) ListTemplatesByUser(ctx context.Context, arg ListTemplatesByUs
 			&i.CreatorUserID,
 			&i.Stats,
 			&i.Rules,
-			&i.Components,
 			&i.IsPrivate,
 			&i.AllowSuggestions,
 			&i.CreatedAt,
@@ -1943,7 +1935,7 @@ SET
     allow_suggestions = $6,
     updated_at = $7
 WHERE id = $8
-RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
+RETURNING id, name, description, creator_user_id, stats, rules, is_private, allow_suggestions, created_at, updated_at
 `
 
 type UpdateTemplateParams struct {
@@ -1976,7 +1968,6 @@ func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) 
 		&i.CreatorUserID,
 		&i.Stats,
 		&i.Rules,
-		&i.Components,
 		&i.IsPrivate,
 		&i.AllowSuggestions,
 		&i.CreatedAt,

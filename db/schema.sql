@@ -17,7 +17,6 @@ CREATE TABLE templates (
     creator_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     stats JSONB NOT NULL DEFAULT '[]'::jsonb,
     rules JSONB NOT NULL DEFAULT '[]'::jsonb,
-    components JSONB NOT NULL DEFAULT '[]'::jsonb,
     is_private BOOLEAN NOT NULL DEFAULT FALSE,
     allow_suggestions BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -25,6 +26,16 @@ func NewTemplateService(pool *pgxpool.Pool) *TemplateService {
 		pool:    pool,
 		queries: repository.New(pool),
 	}
+}
+
+// normalizeRawJSONB returns nil for empty or JSON-null raw values so optional
+// JSONB columns store SQL NULL instead of a literal "null" or an empty blob.
+func normalizeRawJSONB(raw []byte) []byte {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil
+	}
+	return trimmed
 }
 
 // CreateTemplateWithComponents wraps template and component creation in a single transaction
@@ -74,7 +85,6 @@ func (s *TemplateService) CreateTemplateWithComponents(ctx context.Context, crea
 		CreatorUserID:    creatorUserID,
 		Stats:            statsValue,
 		Rules:            []byte(req.Rules),
-		Components:       []byte("[]"),
 		IsPrivate:        req.IsPrivate,
 		AllowSuggestions: req.AllowSuggestions,
 		CreatedAt:        pgtype.Timestamptz{Time: now, Valid: true},
@@ -111,7 +121,7 @@ func (s *TemplateService) CreateTemplateWithComponents(ctx context.Context, crea
 			compSubCategoryValue = pgtype.Text{String: *comp.SubCategory, Valid: true}
 		}
 
-		tiersValue := []byte(comp.Tiers)
+		tiersValue := normalizeRawJSONB([]byte(comp.Tiers))
 		if len(tiersValue) == 0 {
 			tiersValue = []byte("[]")
 		}
@@ -126,7 +136,7 @@ func (s *TemplateService) CreateTemplateWithComponents(ctx context.Context, crea
 			Effects:      []byte(comp.Effects),
 			HasLevels:    comp.HasLevels,
 			LevelScaling: levelScalingValue,
-			LevelRule:    []byte(comp.LevelRule),
+			LevelRule:    normalizeRawJSONB([]byte(comp.LevelRule)),
 			Tiers:        tiersValue,
 			IsDeleted:    false,
 			CreatedAt:    pgtype.Timestamptz{Time: now, Valid: true},
@@ -167,7 +177,6 @@ func (s *TemplateService) CreateTemplate(ctx context.Context, creatorUserID int3
 		Name:             name,
 		CreatorUserID:    creatorUserID,
 		Stats:            []byte("[]"),
-		Components:       []byte("[]"),
 		IsPrivate:        req.IsPrivate,
 		AllowSuggestions: req.AllowSuggestions,
 		CreatedAt:        pgtype.Timestamptz{Time: now, Valid: true},
@@ -423,7 +432,7 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, actorID int32, req
 			compSubCategoryValue = pgtype.Text{String: *comp.SubCategory, Valid: true}
 		}
 
-		tiersValue := []byte(comp.Tiers)
+		tiersValue := normalizeRawJSONB([]byte(comp.Tiers))
 		if len(tiersValue) == 0 {
 			tiersValue = []byte("[]")
 		}
@@ -438,7 +447,7 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, actorID int32, req
 			Effects:      []byte(comp.Effects),
 			HasLevels:    comp.HasLevels,
 			LevelScaling: levelScalingValue,
-			LevelRule:    []byte(comp.LevelRule),
+			LevelRule:    normalizeRawJSONB([]byte(comp.LevelRule)),
 			Tiers:        tiersValue,
 			IsDeleted:    false,
 			CreatedAt:    pgtype.Timestamptz{Time: now, Valid: true},

@@ -63,7 +63,6 @@ type Template struct {
 	CreatorUserID    int32
 	Stats            []byte
 	Rules            []byte
-	Components       []byte
 	IsPrivate        bool
 	AllowSuggestions bool
 	CreatedAt        pgtype.Timestamptz

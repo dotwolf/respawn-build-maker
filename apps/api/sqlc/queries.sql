@@ -105,23 +105,22 @@ INSERT INTO templates (
     creator_user_id,
     stats,
     rules,
-    components,
     is_private,
     allow_suggestions,
     created_at,
     updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-) RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at;
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+) RETURNING id, name, description, creator_user_id, stats, rules, is_private, allow_suggestions, created_at, updated_at;
 
 -- name: GetTemplateByID :one
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE id = $1 AND is_private = FALSE
 LIMIT 1;
 
 -- name: GetTemplateByIDAny :one
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE id = $1
 LIMIT 1;
@@ -133,7 +132,7 @@ WHERE id = $1
 LIMIT 1;
 
 -- name: ListTemplatesByUser :many
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE creator_user_id = sqlc.arg('creator_user_id') AND (is_private = FALSE OR sqlc.arg('requester_id')::integer = creator_user_id)
 ORDER BY created_at DESC
@@ -160,14 +159,14 @@ SET
     allow_suggestions = $6,
     updated_at = $7
 WHERE id = $8
-RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at;
+RETURNING id, name, description, creator_user_id, stats, rules, is_private, allow_suggestions, created_at, updated_at;
 
 -- name: DeleteTemplate :exec
 DELETE FROM templates
 WHERE id = $1;
 
 -- name: ListPublicTemplates :many
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE is_private = FALSE
 ORDER BY created_at DESC
