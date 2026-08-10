@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Loader2, RotateCcw, Search, Sparkles, X } from 'lucide-react';
+import { Bookmark, Check, Loader2, RotateCcw, Search, X } from 'lucide-react';
 import { useNotification } from './NotificationProvider';
 import type { Component, Constraint, Slot } from '../templates/new/page';
 import type { StatDefinition } from '../lib/stats';
@@ -12,11 +12,13 @@ import { formatEffectValue, formatStatSummary, levelLabel, statQuality } from '.
 import { orderStats, shouldShowStatDivider, statGroupOf, statIsNegative } from '../lib/stats';
 import { runOptimizer } from '../lib/optimizer';
 import type { OptimizedBuild, OptimizerProgress, OptimizerResult, OptimizerWeights } from '../lib/optimizer';
+import { saveLocalBuild } from '../lib/localBuilds';
 import { useOptimizerStore } from './OptimizerStore';
 import type { OptimizerSettings } from './OptimizerStore';
 
 interface BuildOptimizerModalProps {
   templateId: string;
+  templateName?: string;
   slots: Slot[];
   components: Component[];
   constraints: Constraint[];
@@ -50,6 +52,7 @@ function weightTrackStyle(value: number): CSSProperties {
 
 export default function BuildOptimizerModal({
   templateId,
+  templateName,
   slots,
   components,
   constraints,
@@ -82,6 +85,9 @@ export default function BuildOptimizerModal({
   const [result, setResultLocal] = useState<OptimizerResult | null>(() => getEntry(templateId)?.result ?? null);
   const [progress, setProgress] = useState<(OptimizerProgress & { elapsedMs: number }) | null>(null);
   const [selectedBuild, setSelectedBuild] = useState<SelectedBuild | null>(null);
+  const [saveTarget, setSaveTarget] = useState<SelectedBuild | null>(null);
+  const [saveName, setSaveName] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     const settings: OptimizerSettings = { weights, minReq, maxReq, excluded, excludedClasses, multiclass };
@@ -187,6 +193,32 @@ export default function BuildOptimizerModal({
     setExcluded(new Set());
     setExcludedClasses(new Set());
     setMulticlass(true);
+  };
+
+  const openSave = (build: OptimizedBuild, index: number) => {
+    setSaveName(templateName ? `${templateName} #${index + 1}` : `Build #${index + 1}`);
+    setSaveTarget({ build, index });
+  };
+
+  const handleSaveConfirm = async () => {
+    if (!saveTarget) return;
+    const name = saveName.trim() || (templateName ? `${templateName} #${saveTarget.index + 1}` : `Build #${saveTarget.index + 1}`);
+    try {
+      setIsSaving(true);
+      await saveLocalBuild({
+        name,
+        template_id: templateId,
+        template_name: templateName,
+        build: saveTarget.build,
+      });
+      setSaveTarget(null);
+      setSaveName('');
+      notify('Build saved to My Builds.', 'success');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Could not save build.', 'error');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleCalculate = async () => {
@@ -346,65 +378,69 @@ export default function BuildOptimizerModal({
           )}
         </div>
       </div>
-      <div className="optimizer-section">
-        <h4>Excluded classes</h4>
-        <p className="panel-subtitle">Exclude classes the optimizer may never allocate points into.</p>
-        <div className="optimizer-exclude-search">
-          <Search size={14} />
-          <input
-            type="text"
-            value={excludeClassSearch}
-            onChange={(e) => setExcludeClassSearch(e.target.value)}
-            placeholder="Filter classes..."
-          />
-        </div>
-        <div className="optimizer-exclude-list">
-          {classOptions.length === 0 ? (
-            <div className="optimizer-exclude-empty">No class point slots in this template.</div>
-          ) : filteredClasses.length === 0 ? (
-            <div className="optimizer-exclude-empty">No classes match.</div>
-          ) : (
-            filteredClasses.map((name) => (
-              <label
-                className={`optimizer-exclude-item${excludedClasses.has(name) ? ' is-excluded' : ''}`}
-                key={name}
-              >
-                <input
-                  type="checkbox"
-                  className="optimizer-exclude-input"
-                  checked={excludedClasses.has(name)}
-                  onChange={() => toggleExcludedClass(name)}
-                />
-                <span className="optimizer-exclude-name" title={name}>
-                  {name}
-                </span>
-                <span className="optimizer-exclude-check" aria-hidden="true">
-                  {excludedClasses.has(name) && <Check size={12} strokeWidth={3} />}
-                </span>
-              </label>
-            ))
-          )}
-        </div>
-      </div>
-      <div className="optimizer-section">
-        <h4>Multi-classing</h4>
-        <p className="panel-subtitle">
-          When off, each slot spends all of its class points on a single class. When on, a slot may split its class
-          points across several classes (total still limited to the slot&apos;s class point pool).
-        </p>
-        <label className={`optimizer-exclude-item${multiclass ? ' is-excluded' : ''}`}>
-          <input
-            type="checkbox"
-            className="optimizer-exclude-input"
-            checked={multiclass}
-            onChange={(e) => setMulticlass(e.target.checked)}
-          />
-          <span className="optimizer-exclude-name">Allow a slot to invest in multiple classes</span>
-          <span className="optimizer-exclude-check" aria-hidden="true">
-            {multiclass && <Check size={12} strokeWidth={3} />}
-          </span>
-        </label>
-      </div>
+      {classOptions.length > 0 && (
+        <>
+          <div className="optimizer-section">
+            <h4>Excluded classes</h4>
+            <p className="panel-subtitle">Exclude classes the optimizer may never allocate points into.</p>
+            <div className="optimizer-exclude-search">
+              <Search size={14} />
+              <input
+                type="text"
+                value={excludeClassSearch}
+                onChange={(e) => setExcludeClassSearch(e.target.value)}
+                placeholder="Filter classes..."
+              />
+            </div>
+            <div className="optimizer-exclude-list">
+              {classOptions.length === 0 ? (
+                <div className="optimizer-exclude-empty">No class point slots in this template.</div>
+              ) : filteredClasses.length === 0 ? (
+                <div className="optimizer-exclude-empty">No classes match.</div>
+              ) : (
+                filteredClasses.map((name) => (
+                  <label
+                    className={`optimizer-exclude-item${excludedClasses.has(name) ? ' is-excluded' : ''}`}
+                    key={name}
+                  >
+                    <input
+                      type="checkbox"
+                      className="optimizer-exclude-input"
+                      checked={excludedClasses.has(name)}
+                      onChange={() => toggleExcludedClass(name)}
+                    />
+                    <span className="optimizer-exclude-name" title={name}>
+                      {name}
+                    </span>
+                    <span className="optimizer-exclude-check" aria-hidden="true">
+                      {excludedClasses.has(name) && <Check size={12} strokeWidth={3} />}
+                    </span>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+          <div className="optimizer-section">
+            <h4>Multi-classing</h4>
+            <p className="panel-subtitle">
+              When off, each slot spends all of its class points on a single class. When on, a slot may split its class
+              points across several classes (total still limited to the slot&apos;s class point pool).
+            </p>
+            <label className={`optimizer-exclude-item${multiclass ? ' is-excluded' : ''}`}>
+              <input
+                type="checkbox"
+                className="optimizer-exclude-input"
+                checked={multiclass}
+                onChange={(e) => setMulticlass(e.target.checked)}
+              />
+              <span className="optimizer-exclude-name">Allow a slot to invest in multiple classes</span>
+              <span className="optimizer-exclude-check" aria-hidden="true">
+                {multiclass && <Check size={12} strokeWidth={3} />}
+              </span>
+            </label>
+          </div>
+        </>
+      )}
     </div>
   );
 
@@ -438,7 +474,6 @@ export default function BuildOptimizerModal({
     if (!result) {
       return (
         <div className="optimizer-running">
-          <Sparkles size={28} />
           <p>No results yet.</p>
           <span>Set your stat priorities and press Calculate Builds.</span>
         </div>
@@ -465,7 +500,6 @@ export default function BuildOptimizerModal({
           <span>
             <strong>{result.nodesExplored.toLocaleString()}</strong> nodes explored
           </span>
-          {result.truncated && <em className="optimizer-warn">search budget reached — near-optimal</em>}
         </div>
         <div className="optimizer-results-list">
           {result.builds.map((build, index) => (
@@ -494,16 +528,28 @@ export default function BuildOptimizerModal({
                   </span>
                 )}
               </div>
-              <div
-                className="optimizer-result-apply"
-                role="button"
-                tabIndex={0}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onApply(build);
-                }}
-              >
-                <Check size={14} /> Apply
+              <div style={{ display: 'flex', gap: '.75rem', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="optimizer-result-save"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openSave(build, index);
+                  }}
+                >
+                  <Bookmark size={14} /> Save
+                </button>
+                <div
+                  className="optimizer-result-apply"
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onApply(build);
+                  }}
+                >
+                  <Check size={14} /> Apply
+                </div>
               </div>
             </div>
           ))}
@@ -532,6 +578,9 @@ export default function BuildOptimizerModal({
               <span>Build #{index + 1}</span>
               <span className="optimizer-popover-grade">{build.grade.toFixed(1)}/10</span>
             </div>
+            <button type="button" className="button secondary" onClick={() => openSave(build, index)}>
+              <Bookmark size={16} /> Save
+            </button>
             <button type="button" className="button" onClick={() => onApply(build)}>
               <Check size={16} /> Apply
             </button>
@@ -678,7 +727,7 @@ export default function BuildOptimizerModal({
                   {renderCriteria()}
                   <div className="optimizer-calculate-bar">
                     <button type="button" className="button" onClick={handleCalculate} disabled={isRunning}>
-                      {isRunning ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
+                      {isRunning ? <Loader2 size={16} className="spin" /> : null}
                       {isRunning ? 'Searching…' : 'Calculate Builds'}
                     </button>
                     <button type="button" className="button secondary" onClick={handleReset} disabled={isRunning}>
@@ -695,6 +744,55 @@ export default function BuildOptimizerModal({
         document.body
       )}
       {renderDrawer()}
+      {saveTarget &&
+        createPortal(
+          <div className="modal-overlay" onClick={() => setSaveTarget(null)}>
+            <div
+              className="modal-content"
+              style={{ maxWidth: 440, padding: '1.5rem' }}
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Save build"
+            >
+              <div className="modal-actions-bar">
+                <h3 style={{ margin: 0 }}>Save build to My Builds</h3>
+              </div>
+              <div style={{ marginTop: '1rem' }}>
+                <label>
+                  Name
+                  <input
+                    value={saveName}
+                    onChange={(e) => setSaveName(e.target.value)}
+                    placeholder="Build name"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleSaveConfirm();
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+              <p className="filter-result-count" style={{ marginTop: '.75rem' }}>
+                Saved locally in this browser.
+              </p>
+              <div
+                className="modal-footer"
+                style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}
+              >
+                <button className="button secondary" type="button" onClick={() => setSaveTarget(null)} disabled={isSaving}>
+                  Cancel
+                </button>
+                <button className="button" type="button" onClick={handleSaveConfirm} disabled={isSaving}>
+                  {isSaving ? <Loader2 size={16} className="spin" /> : <Bookmark size={16} />} Save
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </>
   );
 }

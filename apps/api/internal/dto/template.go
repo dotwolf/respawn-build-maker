@@ -7,36 +7,39 @@ import (
 )
 
 type TemplateCreateRequest struct {
-	Name        string                 `json:"name" binding:"required"`
-	Description *string                `json:"description"`
-	Rules       json.RawMessage        `json:"rules" binding:"required"`
-	IsPrivate   bool                   `json:"is_private"`
-	Stats       json.RawMessage        `json:"stats"`
-	Components  []ComponentCreateInput `json:"components" binding:"required,min=1"`
+	Name             string                 `json:"name" binding:"required"`
+	Description      *string                `json:"description"`
+	Rules            json.RawMessage        `json:"rules" binding:"required"`
+	IsPrivate        bool                   `json:"is_private"`
+	AllowSuggestions bool                   `json:"allow_suggestions"`
+	Stats            json.RawMessage        `json:"stats"`
+	Components       []ComponentCreateInput `json:"components" binding:"required,min=1"`
 }
 
 type TemplateUpdateRequest struct {
-	ID          string                  `json:"id"`
-	Name        string                  `json:"name" binding:"required"`
-	Description *string                 `json:"description"`
-	IsPrivate   *bool                   `json:"is_private"`
-	Stats       json.RawMessage         `json:"stats"`
-	Rules       json.RawMessage         `json:"rules" binding:"required"`
-	Components  []ComponentCreateInput  `json:"components"`
+	ID               string                  `json:"id"`
+	Name             string                  `json:"name" binding:"required"`
+	Description      *string                 `json:"description"`
+	IsPrivate        *bool                   `json:"is_private"`
+	AllowSuggestions *bool                   `json:"allow_suggestions"`
+	Stats            json.RawMessage         `json:"stats"`
+	Rules            json.RawMessage         `json:"rules" binding:"required"`
+	Components       []ComponentCreateInput  `json:"components"`
 }
 
 type TemplateResponse struct {
-	ID              string                 `json:"id"`
-	Name            string                 `json:"name"`
-	Description     *string                `json:"description,omitempty"`
-	CreatorUserID   int32                  `json:"creator_user_id"`
-	CreatorUsername *string                `json:"creator_username,omitempty"`
-	IsPrivate       bool                   `json:"is_private"`
-	CreatedAt       time.Time              `json:"created_at"`
-	UpdatedAt       time.Time              `json:"updated_at"`
-	Rules           json.RawMessage        `json:"rules,omitempty"`
-	Stats           json.RawMessage        `json:"stats,omitempty"`
-	Components      []ComponentCreateInput `json:"components,omitempty"` // Added Components
+	ID               string                 `json:"id"`
+	Name             string                 `json:"name"`
+	Description      *string                `json:"description,omitempty"`
+	CreatorUserID    int32                  `json:"creator_user_id"`
+	CreatorUsername  *string                `json:"creator_username,omitempty"`
+	IsPrivate        bool                   `json:"is_private"`
+	AllowSuggestions bool                   `json:"allow_suggestions"`
+	CreatedAt        time.Time              `json:"created_at"`
+	UpdatedAt        time.Time              `json:"updated_at"`
+	Rules            json.RawMessage        `json:"rules,omitempty"`
+	Stats            json.RawMessage        `json:"stats,omitempty"`
+	Components       []ComponentCreateInput `json:"components,omitempty"` // Added Components
 }
 
 // Universal mapper for repository.Template models (reused for create/update/get results)
@@ -52,16 +55,17 @@ func ToTemplateResponse(template *repository.Template, components []ComponentCre
 	}
 
 	return &TemplateResponse{
-		ID:            template.ID,
-		Name:          template.Name,
-		Description:   desc,
-		CreatorUserID: template.CreatorUserID,
-		IsPrivate:     template.IsPrivate,
-		CreatedAt:     template.CreatedAt.Time,
-		UpdatedAt:     template.UpdatedAt.Time,
-		Rules:         json.RawMessage(template.Rules),
-		Stats:         json.RawMessage(template.Stats),
-		Components:    components,
+		ID:               template.ID,
+		Name:             template.Name,
+		Description:      desc,
+		CreatorUserID:    template.CreatorUserID,
+		IsPrivate:        template.IsPrivate,
+		AllowSuggestions: template.AllowSuggestions,
+		CreatedAt:        template.CreatedAt.Time,
+		UpdatedAt:        template.UpdatedAt.Time,
+		Rules:            json.RawMessage(template.Rules),
+		Stats:            json.RawMessage(template.Stats),
+		Components:       components,
 	}
 }
 
@@ -89,16 +93,17 @@ func ToTemplateResponseFromListRow(row *repository.Template, creatorUsername *st
 	}
 
 	return &TemplateResponse{
-		ID:              row.ID,
-		Name:            row.Name,
-		Description:     desc,
-		CreatorUserID:   row.CreatorUserID,
-		CreatorUsername: creatorUsername,
-		IsPrivate:       row.IsPrivate,
-		CreatedAt:       row.CreatedAt.Time,
-		UpdatedAt:       row.UpdatedAt.Time,
-		Rules:           json.RawMessage(row.Rules),
-		Stats:           json.RawMessage(row.Stats),
+		ID:               row.ID,
+		Name:             row.Name,
+		Description:      desc,
+		CreatorUserID:    row.CreatorUserID,
+		CreatorUsername:  creatorUsername,
+		IsPrivate:        row.IsPrivate,
+		AllowSuggestions: row.AllowSuggestions,
+		CreatedAt:        row.CreatedAt.Time,
+		UpdatedAt:        row.UpdatedAt.Time,
+		Rules:            json.RawMessage(row.Rules),
+		Stats:            json.RawMessage(row.Stats),
 	}
 }
 

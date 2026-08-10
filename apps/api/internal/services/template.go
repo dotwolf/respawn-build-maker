@@ -68,16 +68,17 @@ func (s *TemplateService) CreateTemplateWithComponents(ctx context.Context, crea
 
 	// 2. Create Template within Transaction
 	template, err := qtx.CreateTemplate(ctx, repository.CreateTemplateParams{
-		ID:            templateID,
-		Name:          name,
-		Description:   descValue,
-		CreatorUserID: creatorUserID,
-		Stats:         statsValue,
-		Rules:         []byte(req.Rules),
-		Components:    []byte("[]"),
-		IsPrivate:     req.IsPrivate,
-		CreatedAt:     pgtype.Timestamptz{Time: now, Valid: true},
-		UpdatedAt:     pgtype.Timestamptz{Time: now, Valid: true},
+		ID:               templateID,
+		Name:             name,
+		Description:      descValue,
+		CreatorUserID:    creatorUserID,
+		Stats:            statsValue,
+		Rules:            []byte(req.Rules),
+		Components:       []byte("[]"),
+		IsPrivate:        req.IsPrivate,
+		AllowSuggestions: req.AllowSuggestions,
+		CreatedAt:        pgtype.Timestamptz{Time: now, Valid: true},
+		UpdatedAt:        pgtype.Timestamptz{Time: now, Valid: true},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create template: %w", err)
@@ -162,14 +163,16 @@ func (s *TemplateService) CreateTemplate(ctx context.Context, creatorUserID int3
 	templateID := fmt.Sprintf("tmpl-%d", now.UnixNano())
 
 	template, err := s.queries.CreateTemplate(ctx, repository.CreateTemplateParams{
-		ID:            templateID,
-		Name:          name,
-		CreatorUserID: creatorUserID,
-		Stats:         []byte("[]"),
-		Components:    []byte("[]"),
-		CreatedAt:     pgtype.Timestamptz{Time: now, Valid: true},
-		UpdatedAt:     pgtype.Timestamptz{Time: now, Valid: true},
-		Rules:         []byte(req.Rules),
+		ID:               templateID,
+		Name:             name,
+		CreatorUserID:    creatorUserID,
+		Stats:            []byte("[]"),
+		Components:       []byte("[]"),
+		IsPrivate:        req.IsPrivate,
+		AllowSuggestions: req.AllowSuggestions,
+		CreatedAt:        pgtype.Timestamptz{Time: now, Valid: true},
+		UpdatedAt:        pgtype.Timestamptz{Time: now, Valid: true},
+		Rules:            []byte(req.Rules),
 	})
 	if err != nil {
 		return nil, err
@@ -210,10 +213,11 @@ func (s *TemplateService) GetTemplateByIDForUser(ctx context.Context, id string,
 }
 
 func (s *TemplateService) templateResponseWithComponents(ctx context.Context, template *repository.Template) (*dto.TemplateResponse, error) {
-	// Fetch associated components for full view
+	// Fetch associated components for full view. Use a large limit so templates
+	// with more than 100 components load completely.
 	dbComponents, err := s.queries.ListComponentsByTemplate(ctx, repository.ListComponentsByTemplateParams{
 		TemplateID: template.ID,
-		Limit:      100,
+		Limit:      100000,
 		Offset:     0,
 	})
 	if err != nil {
@@ -281,6 +285,17 @@ func (s *TemplateService) ListTemplatesByUser(ctx context.Context, creatorUserID
 	}
 
 	return dto.ToTemplateResponsesFromListRows(templates, usernames), nil
+}
+
+func (s *TemplateService) CountTemplatesByUser(ctx context.Context, creatorUserID int32, requesterID int32) (int64, error) {
+	if creatorUserID <= 0 {
+		return 0, validationError("creator user id is required")
+	}
+
+	return s.queries.CountTemplatesByUser(ctx, repository.CountTemplatesByUserParams{
+		CreatorUserID: creatorUserID,
+		RequesterID:   requesterID,
+	})
 }
 
 func (s *TemplateService) usernamesByIDs(ctx context.Context, templates []repository.Template) (map[int32]string, error) {
@@ -360,14 +375,20 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, actorID int32, req
 		isPrivate = *req.IsPrivate
 	}
 
+	allowSuggestions := false
+	if req.AllowSuggestions != nil {
+		allowSuggestions = *req.AllowSuggestions
+	}
+
 	template, err := qtx.UpdateTemplate(ctx, repository.UpdateTemplateParams{
-		ID:          req.ID,
-		Name:        name,
-		Description: descValue,
-		Stats:       statsValue,
-		Rules:       []byte(req.Rules),
-		IsPrivate:   isPrivate,
-		UpdatedAt:   pgtype.Timestamptz{Time: now, Valid: true},
+		ID:               req.ID,
+		Name:             name,
+		Description:      descValue,
+		Stats:            statsValue,
+		Rules:            []byte(req.Rules),
+		IsPrivate:        isPrivate,
+		AllowSuggestions: allowSuggestions,
+		UpdatedAt:        pgtype.Timestamptz{Time: now, Valid: true},
 	})
 	if err != nil {
 		return nil, err

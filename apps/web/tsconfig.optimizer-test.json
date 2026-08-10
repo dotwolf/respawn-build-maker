@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "outDir": "C:/Users/Desktop/AppData/Local/Temp/opencode/optimizer-test/out",
+    "rootDir": ".",
+    "declaration": false,
+    "sourceMap": false,
+    "incremental": false
+  },
+  "include": ["test-harness.ts"]
+}

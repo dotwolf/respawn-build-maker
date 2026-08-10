@@ -152,6 +152,40 @@ func ListTemplatesByUser(templateService services.TemplateServiceInterface) gin.
 	}
 }
 
+// CountTemplatesByUser godoc
+// @Summary      Count templates by user
+// @Description  Counts templates created by a user that the requester can see
+// @Tags         templates
+// @Accept       json
+// @Produce      json
+// @Param        user_id query int true "Creator user ID"
+// @Success      200  {object}  map[string]int64
+// @Failure      400  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /templates/count [get]
+func CountTemplatesByUser(templateService services.TemplateServiceInterface) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userIDStr := c.Query("user_id")
+		if userIDStr == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+			return
+		}
+
+		userID, err := strconv.Atoi(userIDStr)
+		if err != nil || userID <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user_id"})
+			return
+		}
+
+		count, err := templateService.CountTemplatesByUser(c.Request.Context(), int32(userID), RequesterID(c))
+		if err != nil {
+			respondError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"count": count})
+	}
+}
+
 // ListTemplates godoc
 // @Summary      List templates
 // @Description  List public templates or filter by user ID with pagination

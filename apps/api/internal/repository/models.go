@@ -57,16 +57,29 @@ type Component struct {
 }
 
 type Template struct {
-	ID            string
-	Name          string
-	Description   pgtype.Text
-	CreatorUserID int32
-	Stats         []byte
-	Rules         []byte
-	Components    []byte
-	IsPrivate     bool
-	CreatedAt     pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
+	ID               string
+	Name             string
+	Description      pgtype.Text
+	CreatorUserID    int32
+	Stats            []byte
+	Rules            []byte
+	Components       []byte
+	IsPrivate        bool
+	AllowSuggestions bool
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+type TemplateSuggestion struct {
+	ID             string
+	TemplateID     string
+	AuthorUserID   int32
+	Description    pgtype.Text
+	Components     []byte
+	Status         string
+	AuthorNotified bool
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
 }
 
 type User struct {

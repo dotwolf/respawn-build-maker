@@ -107,20 +107,21 @@ INSERT INTO templates (
     rules,
     components,
     is_private,
+    allow_suggestions,
     created_at,
     updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at;
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+) RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at;
 
 -- name: GetTemplateByID :one
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE id = $1 AND is_private = FALSE
 LIMIT 1;
 
 -- name: GetTemplateByIDAny :one
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE id = $1
 LIMIT 1;
@@ -132,11 +133,21 @@ WHERE id = $1
 LIMIT 1;
 
 -- name: ListTemplatesByUser :many
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE creator_user_id = sqlc.arg('creator_user_id') AND (is_private = FALSE OR sqlc.arg('requester_id')::integer = creator_user_id)
 ORDER BY created_at DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: CountTemplatesByUser :one
+SELECT COUNT(*)
+FROM templates
+WHERE creator_user_id = sqlc.arg('creator_user_id') AND (is_private = FALSE OR sqlc.arg('requester_id')::integer = creator_user_id);
+
+-- name: CountPublicTemplates :one
+SELECT COUNT(*)
+FROM templates
+WHERE is_private = FALSE;
 
 -- name: UpdateTemplate :one
 UPDATE templates
@@ -146,16 +157,17 @@ SET
     stats = COALESCE($3, stats),
     rules = $4,
     is_private = $5,
-    updated_at = $6
-WHERE id = $7
-RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at;
+    allow_suggestions = $6,
+    updated_at = $7
+WHERE id = $8
+RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at;
 
 -- name: DeleteTemplate :exec
 DELETE FROM templates
 WHERE id = $1;
 
 -- name: ListPublicTemplates :many
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE is_private = FALSE
 ORDER BY created_at DESC
@@ -196,6 +208,16 @@ FROM builds
 WHERE creator_user_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3;
+
+-- name: CountBuildsByUser :one
+SELECT COUNT(*)
+FROM builds
+WHERE creator_user_id = $1;
+
+-- name: CountPublicBuilds :one
+SELECT COUNT(*)
+FROM builds
+WHERE is_private = FALSE;
 
 -- name: ListBuildsByTemplate :many
 SELECT id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
@@ -251,6 +273,45 @@ SET
     updated_at = $2
 WHERE id = $3
 RETURNING id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private;
+
+-- name: GetTemplatesByIDs :many
+SELECT id, name
+FROM templates
+WHERE id = ANY($1::text[]);
+
+-- name: ListPublicBuilds :many
+SELECT id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
+FROM builds
+WHERE is_private = FALSE
+ORDER BY created_at DESC
+LIMIT $2 OFFSET $1;
+
+-- name: ListPublicBuildsByTemplate :many
+SELECT id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
+FROM builds
+WHERE is_private = FALSE AND template_id = $1
+ORDER BY created_at DESC
+LIMIT $3 OFFSET $2;
+
+-- name: ListLikedBuildsByUser :many
+SELECT b.id, b.name, b.description, b.creator_user_id, b.template_id, b.created_at, b.updated_at, b.tags, b.vote_score, b.components, b.is_private
+FROM build_votes v
+JOIN builds b ON b.id = v.build_id
+WHERE v.user_id = $1 AND v.value = 1 AND (b.is_private = FALSE OR b.creator_user_id = $1)
+ORDER BY v.created_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountLikedBuildsByUser :one
+SELECT COUNT(*)
+FROM build_votes v
+JOIN builds b ON b.id = v.build_id
+WHERE v.user_id = $1 AND v.value = 1 AND (b.is_private = FALSE OR b.creator_user_id = $1);
+
+-- name: CountPublicBuildVotes :one
+SELECT COUNT(*)
+FROM build_votes v
+JOIN builds b ON b.id = v.build_id
+WHERE v.value = 1 AND b.is_private = FALSE;
 
 -- name: CreateComponent :one
 INSERT INTO components (
@@ -339,6 +400,10 @@ RETURNING id, template_id, scoped_number, name, description, sub_category, categ
 DELETE FROM components
 WHERE template_id = sqlc.arg('template_id') AND NOT (scoped_number = ANY(sqlc.arg('scoped_numbers')::int[]));
 
+-- name: DeleteComponentsByScopedNumberList :exec
+DELETE FROM components
+WHERE template_id = sqlc.arg('template_id') AND scoped_number = ANY(sqlc.arg('scoped_numbers')::int[]);
+
 -- name: DeleteComponent :exec
 DELETE FROM components
 WHERE id = $1 AND template_id = $2;
@@ -369,3 +434,91 @@ ORDER BY category, position;
 -- name: DeleteBuildSlotsByBuild :exec
 DELETE FROM build_slots
 WHERE build_id = $1;
+
+-- name: CreateSuggestion :one
+INSERT INTO template_suggestions (
+    id,
+    template_id,
+    author_user_id,
+    description,
+    components,
+    status,
+    author_notified,
+    created_at,
+    updated_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9
+) RETURNING id, template_id, author_user_id, description, components, status, author_notified, created_at, updated_at;
+
+-- name: GetSuggestionByID :one
+SELECT id, template_id, author_user_id, description, components, status, author_notified, created_at, updated_at
+FROM template_suggestions
+WHERE id = $1
+LIMIT 1;
+
+-- name: GetPendingSuggestionByTemplateAndAuthor :one
+SELECT id, template_id, author_user_id, description, components, status, author_notified, created_at, updated_at
+FROM template_suggestions
+WHERE template_id = $1 AND author_user_id = $2 AND status = 'pending'
+LIMIT 1;
+
+-- name: ListSuggestionsByTemplate :many
+SELECT id, template_id, author_user_id, description, components, status, author_notified, created_at, updated_at
+FROM template_suggestions
+WHERE template_id = $1 AND status = 'pending'
+ORDER BY created_at ASC
+LIMIT $2 OFFSET $3;
+
+-- name: UpdateSuggestion :one
+UPDATE template_suggestions
+SET
+    description = $1,
+    components = $2,
+    updated_at = $3
+WHERE id = $4
+RETURNING id, template_id, author_user_id, description, components, status, author_notified, created_at, updated_at;
+
+-- name: AcceptSuggestion :one
+UPDATE template_suggestions
+SET
+    status = 'accepted',
+    author_notified = FALSE,
+    updated_at = $3
+WHERE id = $1 AND template_id = $2
+RETURNING id, template_id, author_user_id, description, components, status, author_notified, created_at, updated_at;
+
+-- name: DeleteSuggestion :exec
+DELETE FROM template_suggestions
+WHERE id = $1;
+
+-- name: CountPendingSuggestionsForOwner :one
+SELECT COUNT(*)
+FROM template_suggestions s
+JOIN templates t ON t.id = s.template_id
+WHERE t.creator_user_id = $1 AND s.status = 'pending';
+
+-- name: ListAcceptedSuggestionsForAuthorUnnotified :many
+SELECT s.id, s.template_id, t.name
+FROM template_suggestions s
+JOIN templates t ON t.id = s.template_id
+WHERE s.author_user_id = $1 AND s.status = 'accepted' AND s.author_notified = FALSE
+ORDER BY s.updated_at DESC;
+
+-- name: MarkSuggestionAuthorNotified :exec
+UPDATE template_suggestions
+SET author_notified = TRUE
+WHERE id = ANY($1::text[]);
+
+-- name: CountAcceptedSuggestionsForAuthorUnnotified :one
+SELECT COUNT(*)
+FROM template_suggestions
+WHERE author_user_id = $1 AND status = 'accepted' AND author_notified = FALSE;
+
+-- name: ListPendingSuggestionCountsForOwner :many
+SELECT t.id AS template_id, t.name AS template_name, COUNT(s.id) AS pending_count
+FROM templates t
+LEFT JOIN template_suggestions s ON s.template_id = t.id AND s.status = 'pending'
+WHERE t.creator_user_id = $1
+GROUP BY t.id, t.name
+HAVING COUNT(s.id) > 0
+ORDER BY t.name ASC;

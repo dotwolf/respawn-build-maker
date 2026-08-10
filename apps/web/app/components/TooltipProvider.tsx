@@ -46,6 +46,8 @@ export interface ComponentTooltipData {
   itemType?: string;
   // Effective values at the equipped tier/level, including build multipliers
   currentEffects?: CurrentEffectValue[];
+  // When set, renders a before/after comparison instead of a single component
+  before?: ComponentTooltipData;
 }
 
 export interface CurrentEffectValue {
@@ -80,6 +82,262 @@ const formatEffectValue = (type: string, value: number | string): string => {
   if (type === 'multiplier') return `x${num}`;
   return `${num > 0 ? '+' : ''}${num}`;
 };
+
+function TooltipBody({ data, label }: { data: ComponentTooltipData; label?: string }) {
+  const nameColor = data.rarity && RARITY_COLORS[data.rarity.toLowerCase()]
+    ? RARITY_COLORS[data.rarity.toLowerCase()]
+    : '#fff';
+
+  return (
+    <>
+      {label && (
+        <div
+          className="tooltip-diff-label"
+          style={{
+            fontSize: '11px',
+            fontWeight: 'bold',
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            color: label === 'Before' ? '#F44336' : '#4CAF50',
+            marginBottom: '6px',
+          }}
+        >
+          {label}
+        </div>
+      )}
+
+      <div className="tooltip-header">
+        <strong className="tooltip-name">
+          {data.name}
+        </strong>
+
+        <span
+          className="tooltip-category tooltip-rarity"
+          style={{
+            fontSize: '12px',
+            textTransform: 'capitalize',
+            color: nameColor !== '#fff' ? nameColor : '#aaa',
+          }}
+        >
+          {data.category} {data.sub_category ? `• ${data.sub_category}` : ''}
+        </span>
+      </div>
+
+      {/* Class indicator matching .tooltip-class */}
+      {data.itemClass && (
+        <div className="tooltip-class" style={{ fontSize: '12px', color: '#aaa', marginBottom: '5px' }}>
+          Class: {data.itemClass}
+        </div>
+      )}
+
+      {/* Type indicator matching .tooltip-type */}
+      {data.itemType && (
+        <div className="tooltip-type" style={{ fontSize: '12px', color: '#aaa', marginBottom: '5px' }}>
+          Type: {data.itemType}
+        </div>
+      )}
+
+      {/* Level indicator matching .tooltip-level */}
+      {data.level !== undefined && (
+        <div className="tooltip-level" style={{ fontSize: '12px', color: '#aaa', marginBottom: '5px' }}>
+          {data.level_rule?.type === 'tiers' ? 'Tier' : 'Level'}: {data.level}
+        </div>
+      )}
+
+      {/* Description matching .tooltip-description */}
+      {data.description && (
+        <p
+          className="tooltip-description"
+          style={{
+            marginTop: '8px',
+            paddingTop: '8px',
+            fontSize: '12px',
+            color: '#ddd',
+            fontStyle: 'italic',
+            margin: '8px 0 0 0',
+          }}
+        >
+          {data.description}
+        </p>
+      )}
+
+      {/* Effects list adapted with .tooltip-stats structure */}
+      <div className="tooltip-effects tooltip-stats" style={{ margin: '8px 0' }}>
+        <span
+          className="tooltip-section-title"
+          style={{ fontSize: '12px', color: '#aaa', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}
+        >
+          {data.currentEffects ? 'Base Effects' : `Effects (${data.effects.length})`}
+        </span>
+        {data.effects.length === 0 ? (
+          <span className="tooltip-empty" style={{ fontSize: '12px', color: '#aaa' }}>
+            No base effects
+          </span>
+        ) : (
+          data.effects.map((effect, effIdx) => (
+            <div
+              key={effIdx}
+              className="tooltip-effect-row tooltip-stat"
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '13px',
+              }}
+            >
+              <span className="tooltip-stat-name" style={{ color: '#aaa' }}>
+                {effect.stat || 'Unnamed Stat'}:
+              </span>
+              <span
+                className="tooltip-stat-val tooltip-stat-value"
+                style={{
+                  fontWeight: 'bold',
+                  color: getEffectValueClass(effect.value),
+                }}
+              >
+                {formatEffectValue(effect.type, effect.value)}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Current values at the equipped tier, including build multipliers */}
+      {data.currentEffects && (
+        <div className="tooltip-effects tooltip-stats" style={{ margin: '8px 0' }}>
+          <span
+            className="tooltip-section-title"
+            style={{ fontSize: '12px', color: '#aaa', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}
+          >
+            Current (
+            {data.has_levels
+              ? `${data.level_rule?.type === 'tiers' ? 'Tier' : 'Level'} ${data.level ?? 0}`
+              : 'in build'}
+            )
+          </span>
+          {data.currentEffects.length === 0 ? (
+            <span className="tooltip-empty" style={{ fontSize: '12px', color: '#aaa' }}>
+              No current effects
+            </span>
+          ) : (
+            data.currentEffects.map((effect, effIdx) => (
+              <div
+                key={effIdx}
+                className="tooltip-effect-row tooltip-stat"
+                style={{ display: 'flex', flexDirection: 'column', fontSize: '13px' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span className="tooltip-stat-name" style={{ color: '#aaa' }}>
+                    {effect.stat || 'Unnamed Stat'}:
+                  </span>
+                  <span
+                    className="tooltip-stat-val tooltip-stat-value"
+                    style={{
+                      fontWeight: 'bold',
+                      color: getEffectValueClass(effect.value),
+                    }}
+                  >
+                    {formatEffectValue(effect.type, effect.value)}
+                  </span>
+                </div>
+                {effect.note && (
+                  <span style={{ fontSize: '11px', color: '#aaa', fontStyle: 'italic' }}>
+                    {effect.note}
+                  </span>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Level scaling rules section */}
+      {data.has_levels && (
+        <div
+          className="tooltip-levels"
+          style={{
+            fontSize: '12px',
+            color: '#aaa',
+            marginTop: '8px',
+            paddingTop: '8px',
+            borderTop: '1px solid #444',
+          }}
+        >
+          <span
+            className="tooltip-section-title"
+            style={{ fontWeight: 'bold', display: 'block', marginBottom: '4px' }}
+          >
+            Level Scaling: {data.level_scaling}
+          </span>
+          {data.level_rule?.type === 'formula' && (
+            <div>
+              {data.level_rule.formulas && Object.keys(data.level_rule.formulas).length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '2px' }}>
+                  {Object.entries(data.level_rule.formulas).map(([stat, formula]) => (
+                    <div key={stat} style={{ fontSize: '11px' }}>
+                      <span style={{ color: '#aaa' }}>{stat}:</span>{' '}
+                      <code style={{ color: '#fff' }}>{formula}</code>
+                    </div>
+                  ))}
+                </div>
+              ) : data.level_rule.formula ? (
+                <div>
+                  Formula: <code style={{ color: '#fff' }}>{data.level_rule.formula}</code>
+                </div>
+              ) : null}
+              {data.level_rule.max_level !== undefined && (
+                <div style={{ marginTop: '4px', fontSize: '11px' }}>
+                  Max Lvl: {data.level_rule.max_level}
+                </div>
+              )}
+            </div>
+          )}
+          {data.level_rule?.type === 'tiers' && (
+            <div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
+                {(data.level_rule.tiers || []).map((tier) => (
+                  <div
+                    key={tier.tier_number}
+                    style={{
+                      padding: '4px 6px',
+                      border: '1px solid #333',
+                      borderRadius: '4px',
+                      background: '#111',
+                    }}
+                  >
+                    <div style={{ color: '#fff', fontWeight: 'bold', fontSize: '11px', marginBottom: '2px' }}>
+                      Tier {tier.tier_number}
+                      {tier.label ? ` · ${tier.label}` : ''}
+                    </div>
+                    {tier.effects.length === 0 ? (
+                      <div style={{ fontSize: '11px', color: '#777' }}>No effects</div>
+                    ) : (
+                      tier.effects.map((effect, effIdx) => (
+                        <div
+                          key={effIdx}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '11px',
+                            lineHeight: '1.5',
+                          }}
+                        >
+                          <span style={{ color: '#aaa' }}>{effect.stat || 'Unnamed Stat'}:</span>
+                          <span style={{ color: getEffectValueClass(effect.value) }}>
+                            {formatEffectValue(effect.type, effect.value)}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
 
 // --- Context Definition ---
 interface TooltipContextType {
@@ -139,10 +397,6 @@ export function TooltipProvider({ children }: { children: React.ReactNode }) {
     setClampedPosition((prev) => (prev.x === left && prev.y === top ? prev : { x: left, y: top }));
   }, [tooltipData, position]);
 
-  const nameColor = tooltipData?.rarity && RARITY_COLORS[tooltipData.rarity.toLowerCase()]
-    ? RARITY_COLORS[tooltipData.rarity.toLowerCase()]
-    : '#fff';
-
   return (
     <TooltipContext.Provider value={{ showTooltip, refreshTooltip, hideTooltip, updatePosition }}>
       {children}
@@ -170,7 +424,7 @@ export function TooltipProvider({ children }: { children: React.ReactNode }) {
                 display: 'block',
                 visibility: 'visible',
                 opacity: 1,
-                width: '250px',
+                width: tooltipData.before ? '540px' : '250px',
                 padding: '10px',
                 background: '#1a1a1a',
                 border: '1px solid #444',
@@ -180,234 +434,17 @@ export function TooltipProvider({ children }: { children: React.ReactNode }) {
                 boxSizing: 'border-box',
               }}
             >
-              <div className="tooltip-header">
-                <strong className="tooltip-name">
-                  {tooltipData.name}
-                </strong>
-
-                <span
-                  className="tooltip-category tooltip-rarity"
-                  style={{
-                    fontSize: '12px',
-                    textTransform: 'capitalize',
-                    color: nameColor !== '#fff' ? nameColor : '#aaa',
-                  }}
-                >
-                  {tooltipData.category} {tooltipData.sub_category ? `• ${tooltipData.sub_category}` : ''}
-                </span>
-              </div>
-
-              {/* Class indicator matching .tooltip-class */}
-              {tooltipData.itemClass && (
-                <div className="tooltip-class" style={{ fontSize: '12px', color: '#aaa', marginBottom: '5px' }}>
-                  Class: {tooltipData.itemClass}
+              {tooltipData.before ? (
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                  <div style={{ flex: '1 1 0', minWidth: '0', paddingRight: '12px', borderRight: '1px solid #333' }}>
+                    <TooltipBody data={tooltipData.before} label="Before" />
+                  </div>
+                  <div style={{ flex: '1 1 0', minWidth: '0' }}>
+                    <TooltipBody data={tooltipData} label="After" />
+                  </div>
                 </div>
-              )}
-
-              {/* Type indicator matching .tooltip-type */}
-              {tooltipData.itemType && (
-                <div className="tooltip-type" style={{ fontSize: '12px', color: '#aaa', marginBottom: '5px' }}>
-                  Type: {tooltipData.itemType}
-                </div>
-              )}
-
-              {/* Level indicator matching .tooltip-level */}
-              {tooltipData.level !== undefined && (
-                <div className="tooltip-level" style={{ fontSize: '12px', color: '#aaa', marginBottom: '5px' }}>
-                  {tooltipData.level_rule?.type === 'tiers' ? 'Tier' : 'Level'}: {tooltipData.level}
-                </div>
-              )}
-
-              {/* Description matching .tooltip-description */}
-              {tooltipData.description && (
-                <p
-                  className="tooltip-description"
-                  style={{
-                    marginTop: '8px',
-                    paddingTop: '8px',
-                    fontSize: '12px',
-                    color: '#ddd',
-                    fontStyle: 'italic',
-                    margin: '8px 0 0 0',
-                  }}
-                >
-                  {tooltipData.description}
-                </p>
-              )}
-
-              {/* Effects list adapted with .tooltip-stats structure */}
-              <div className="tooltip-effects tooltip-stats" style={{ margin: '8px 0' }}>
-                <span
-                  className="tooltip-section-title"
-                  style={{ fontSize: '12px', color: '#aaa', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}
-                >
-                  {tooltipData.currentEffects ? 'Base Effects' : `Effects (${tooltipData.effects.length})`}
-                </span>
-                {tooltipData.effects.length === 0 ? (
-                  <span className="tooltip-empty" style={{ fontSize: '12px', color: '#aaa' }}>
-                    No base effects
-                  </span>
-                ) : (
-                  tooltipData.effects.map((effect, effIdx) => (
-                    <div
-                      key={effIdx}
-                      className="tooltip-effect-row tooltip-stat"
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        fontSize: '13px',
-                      }}
-                    >
-                      <span className="tooltip-stat-name" style={{ color: '#aaa' }}>
-                        {effect.stat || 'Unnamed Stat'}:
-                      </span>
-                      <span
-                        className="tooltip-stat-val tooltip-stat-value"
-                        style={{
-                          fontWeight: 'bold',
-                          color: getEffectValueClass(effect.value),
-                        }}
-                      >
-                        {formatEffectValue(effect.type, effect.value)}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Current values at the equipped tier, including build multipliers */}
-              {tooltipData.currentEffects && (
-                <div className="tooltip-effects tooltip-stats" style={{ margin: '8px 0' }}>
-                  <span
-                    className="tooltip-section-title"
-                    style={{ fontSize: '12px', color: '#aaa', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}
-                  >
-                    Current (
-                    {tooltipData.has_levels
-                      ? `${tooltipData.level_rule?.type === 'tiers' ? 'Tier' : 'Level'} ${tooltipData.level ?? 0}`
-                      : 'in build'}
-                    )
-                  </span>
-                  {tooltipData.currentEffects.length === 0 ? (
-                    <span className="tooltip-empty" style={{ fontSize: '12px', color: '#aaa' }}>
-                      No current effects
-                    </span>
-                  ) : (
-                    tooltipData.currentEffects.map((effect, effIdx) => (
-                      <div
-                        key={effIdx}
-                        className="tooltip-effect-row tooltip-stat"
-                        style={{ display: 'flex', flexDirection: 'column', fontSize: '13px' }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span className="tooltip-stat-name" style={{ color: '#aaa' }}>
-                            {effect.stat || 'Unnamed Stat'}:
-                          </span>
-                          <span
-                            className="tooltip-stat-val tooltip-stat-value"
-                            style={{
-                              fontWeight: 'bold',
-                              color: getEffectValueClass(effect.value),
-                            }}
-                          >
-                            {formatEffectValue(effect.type, effect.value)}
-                          </span>
-                        </div>
-                        {effect.note && (
-                          <span style={{ fontSize: '11px', color: '#aaa', fontStyle: 'italic' }}>
-                            {effect.note}
-                          </span>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-
-              {/* Level scaling rules section */}
-              {tooltipData.has_levels && (
-                <div
-                  className="tooltip-levels"
-                  style={{
-                    fontSize: '12px',
-                    color: '#aaa',
-                    marginTop: '8px',
-                    paddingTop: '8px',
-                    borderTop: '1px solid #444',
-                  }}
-                >
-                  <span
-                    className="tooltip-section-title"
-                    style={{ fontWeight: 'bold', display: 'block', marginBottom: '4px' }}
-                  >
-                    Level Scaling: {tooltipData.level_scaling}
-                  </span>
-                  {tooltipData.level_rule?.type === 'formula' && (
-                    <div>
-                      {tooltipData.level_rule.formulas && Object.keys(tooltipData.level_rule.formulas).length > 0 ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '2px' }}>
-                          {Object.entries(tooltipData.level_rule.formulas).map(([stat, formula]) => (
-                            <div key={stat} style={{ fontSize: '11px' }}>
-                              <span style={{ color: '#aaa' }}>{stat}:</span>{' '}
-                              <code style={{ color: '#fff' }}>{formula}</code>
-                            </div>
-                          ))}
-                        </div>
-                      ) : tooltipData.level_rule.formula ? (
-                        <div>
-                          Formula: <code style={{ color: '#fff' }}>{tooltipData.level_rule.formula}</code>
-                        </div>
-                      ) : null}
-                      {tooltipData.level_rule.max_level !== undefined && (
-                        <div style={{ marginTop: '4px', fontSize: '11px' }}>
-                          Max Lvl: {tooltipData.level_rule.max_level}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {tooltipData.level_rule?.type === 'tiers' && (
-                    <div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
-                        {(tooltipData.level_rule.tiers || []).map((tier) => (
-                          <div
-                            key={tier.tier_number}
-                            style={{
-                              padding: '4px 6px',
-                              border: '1px solid #333',
-                              borderRadius: '4px',
-                              background: '#111',
-                            }}
-                          >
-                            <div style={{ color: '#fff', fontWeight: 'bold', fontSize: '11px', marginBottom: '2px' }}>
-                              Tier {tier.tier_number}
-                              {tier.label ? ` · ${tier.label}` : ''}
-                            </div>
-                            {tier.effects.length === 0 ? (
-                              <div style={{ fontSize: '11px', color: '#777' }}>No effects</div>
-                            ) : (
-                              tier.effects.map((effect, effIdx) => (
-                                <div
-                                  key={effIdx}
-                                  style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    fontSize: '11px',
-                                    lineHeight: '1.5',
-                                  }}
-                                >
-                                  <span style={{ color: '#aaa' }}>{effect.stat || 'Unnamed Stat'}:</span>
-                                  <span style={{ color: getEffectValueClass(effect.value) }}>
-                                    {formatEffectValue(effect.type, effect.value)}
-                                  </span>
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+              ) : (
+                <TooltipBody data={tooltipData} />
               )}
             </div>
           </div>,

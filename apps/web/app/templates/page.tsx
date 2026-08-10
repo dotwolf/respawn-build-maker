@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState, useEffect, useMemo } from 'react';
-import { Search, Plus, Sparkles, CalendarDays, User, Lock, Shield } from 'lucide-react';
+import { Search, Plus, CalendarDays, Pencil, User, Lock, Shield } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { normalizeTemplateStats } from '../lib/stats';
 import { useNotification } from '../components/NotificationProvider';
@@ -32,25 +32,20 @@ function formatDate(value?: string) {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 export default function TemplatesPage() {
-  const [creatorUserId, setCreatorUserId] = useState('');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortOption>('newest');
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const { notify } = useNotification();
 
-  const fetchTemplates = async (filterUserId?: string) => {
+  const fetchTemplates = async () => {
     setLoading(true);
     try {
-      const endpoint = filterUserId?.trim()
-        ? `/templates?user_id=${encodeURIComponent(filterUserId.trim())}`
-        : '/templates';
-
-      const data = await apiFetch(endpoint);
+      const data = await apiFetch('/templates');
       setTemplates(Array.isArray(data) ? data : []);
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Failed to load templates.', 'error');
@@ -66,12 +61,10 @@ export default function TemplatesPage() {
 
   const handleFilterSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchTemplates(creatorUserId);
-    notify(creatorUserId ? 'Filtered templates loaded.' : 'Public templates loaded.', 'success');
+    fetchTemplates();
   };
 
   const clearFilters = () => {
-    setCreatorUserId('');
     setQuery('');
     setSort('newest');
     fetchTemplates();
@@ -103,7 +96,7 @@ export default function TemplatesPage() {
     return sorted;
   }, [templates, query, sort]);
 
-  const hasActiveFilters = creatorUserId.trim() !== '' || query.trim() !== '' || sort !== 'newest';
+  const hasActiveFilters = query.trim() !== '' || sort !== 'newest';
 
   return (
     <main className="content-narrow">
@@ -112,8 +105,11 @@ export default function TemplatesPage() {
           <div>
             <h1>Templates</h1>
             <p className="panel-subtitle">
-              Explore community builders or find templates created by a specific user.
+              Explore community builders and the character builds created inside them.
             </p>
+            <Link href="/profile" className="button secondary small" style={{ marginTop: '.75rem' }}>
+              My templates
+            </Link>
           </div>
           <Link href="/templates/new" className="button">
             <Plus size={18} /> New template
@@ -137,17 +133,6 @@ export default function TemplatesPage() {
                 style={{ paddingLeft: '2.25rem' }}
               />
             </div>
-          </div>
-
-          <div className="filter-field">
-            <label htmlFor="creator-user-id">Creator user ID</label>
-            <input
-              id="creator-user-id"
-              type="text"
-              placeholder="e.g. 42"
-              value={creatorUserId}
-              onChange={(e) => setCreatorUserId(e.target.value)}
-            />
           </div>
 
           <div className="filter-field" style={{ minWidth: 150, flex: 0 }}>
@@ -195,16 +180,11 @@ export default function TemplatesPage() {
           <div className="template-grid">
             {filteredTemplates.map((template) => (
               <article key={template.id} className="template-card">
-                <div className="template-meta">
-                  {template.is_private && (
+                {template.is_private && (
+                  <div className="template-meta">
                     <span className="badge private"><Lock size={12} /> Private</span>
-                  )}
-                  {Array.isArray(template.stats) && template.stats.length > 0 && (
-                    <span className="badge accent">
-                      <Sparkles size={12} /> {template.stats.length} stats
-                    </span>
-                  )}
-                </div>
+                  </div>
+                )}
                 <h3>{template.name}</h3>
                 <p className="template-desc">
                   {template.description || 'No description provided.'}
@@ -227,6 +207,13 @@ export default function TemplatesPage() {
                       <CalendarDays size={12} /> {formatDate(template.created_at)}
                     </span>
                   )}
+                  {template.updated_at &&
+                    template.updated_at !== template.created_at &&
+                    formatDate(template.updated_at) && (
+                      <span className="badge">
+                        <Pencil size={12} /> Updated {formatDate(template.updated_at)}
+                      </span>
+                    )}
                   <span className="badge">
                     <User size={12} /> {template.creator_username || `Creator #${template.creator_user_id}`}
                   </span>
@@ -236,8 +223,11 @@ export default function TemplatesPage() {
                   <Link href={`/templates/${template.id}`} className="button secondary small">
                     View
                   </Link>
-                  <Link href={`/templates/${template.id}/builds`} className="button small">
+                  <Link href={`/builds?template=${encodeURIComponent(template.id)}`} className="button small">
                     Builds
+                  </Link>
+                  <Link href={`/templates/${template.id}/builds/new`} className="button small">
+                    Create Build
                   </Link>
                 </div>
               </article>

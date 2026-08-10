@@ -93,7 +93,8 @@ func (s *BuildService) GetBuildByID(ctx context.Context, templateID, id string, 
 	if err := validateBuildTemplateAccess(build.TemplateID, templateID); err != nil {
 		return nil, err
 	}
-	return dto.ToBuildResponse(&repository.Build{
+
+	resp := dto.ToBuildResponse(&repository.Build{
 		ID:            build.ID,
 		Name:          build.Name,
 		Description:   build.Description,
@@ -105,7 +106,12 @@ func (s *BuildService) GetBuildByID(ctx context.Context, templateID, id string, 
 		IsPrivate:     build.IsPrivate,
 		CreatedAt:     build.CreatedAt,
 		UpdatedAt:     build.UpdatedAt,
-	}), nil
+	})
+	enriched, err := s.enrichBuilds(ctx, []*dto.BuildResponse{resp})
+	if err != nil {
+		return nil, err
+	}
+	return enriched[0], nil
 }
 
 func (s *BuildService) ListBuildsByUser(ctx context.Context, creatorUserID int32, limit int32, offset int32) ([]*dto.BuildResponse, error) {
@@ -128,7 +134,15 @@ func (s *BuildService) ListBuildsByUser(ctx context.Context, creatorUserID int32
 		return nil, err
 	}
 
-	return dto.ToBuildResponsesFromListByUser(builds), nil
+	return s.enrichBuilds(ctx, dto.ToBuildResponsesFromListByUser(builds))
+}
+
+func (s *BuildService) CountBuildsByUser(ctx context.Context, creatorUserID int32) (int64, error) {
+	if creatorUserID <= 0 {
+		return 0, validationError("creator user id is required")
+	}
+
+	return s.queries.CountBuildsByUser(ctx, creatorUserID)
 }
 
 func (s *BuildService) ListBuildsByTemplate(ctx context.Context, templateID string, requesterID int32, limit int32, offset int32) ([]*dto.BuildResponse, error) {
@@ -155,23 +169,163 @@ func (s *BuildService) ListBuildsByTemplate(ctx context.Context, templateID stri
 	return dto.ToBuildResponsesFromListByTemplate(builds), nil
 }
 
-func (s *BuildService) UpdateBuild(ctx context.Context, req *dto.BuildUpdateRequest) (*dto.BuildResponse, error) {
+// ListPublicBuilds returns publicly visible builds, optionally scoped to a
+// template. Responses are enriched with the creator's username and the
+// template's name for display and client-side filtering.
+func (s *BuildService) ListPublicBuilds(ctx context.Context, templateID string, limit int32, offset int32) ([]*dto.BuildResponse, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var builds []*dto.BuildResponse
+
+	if strings.TrimSpace(templateID) != "" {
+		rows, qerr := s.queries.ListPublicBuildsByTemplate(ctx, repository.ListPublicBuildsByTemplateParams{
+			TemplateID: templateID,
+			Limit:      limit,
+			Offset:     offset,
+		})
+		if qerr != nil {
+			return nil, qerr
+		}
+		builds = dto.ToBuildResponsesFromListPublicByTemplate(rows)
+	} else {
+		rows, qerr := s.queries.ListPublicBuilds(ctx, repository.ListPublicBuildsParams{
+			Limit:  limit,
+			Offset: offset,
+		})
+		if qerr != nil {
+			return nil, qerr
+		}
+		builds = dto.ToBuildResponsesFromListPublic(rows)
+	}
+
+	return s.enrichBuilds(ctx, builds)
+}
+
+// ListLikedBuilds returns the builds the authenticated user has upvoted.
+func (s *BuildService) ListLikedBuilds(ctx context.Context, userID int32, limit int32, offset int32) ([]*dto.BuildResponse, error) {
+	if userID <= 0 {
+		return nil, validationError("user id is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	rows, err := s.queries.ListLikedBuildsByUser(ctx, repository.ListLikedBuildsByUserParams{
+		UserID: userID,
+		Limit:  limit,
+		Offset: offset,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return s.enrichBuilds(ctx, dto.ToBuildResponsesFromListLiked(rows))
+}
+
+func (s *BuildService) CountLikedBuildsByUser(ctx context.Context, userID int32) (int64, error) {
+	if userID <= 0 {
+		return 0, validationError("user id is required")
+	}
+
+	return s.queries.CountLikedBuildsByUser(ctx, userID)
+}
+
+// enrichBuilds fills in creator usernames and template names in a single pass.
+func (s *BuildService) enrichBuilds(ctx context.Context, builds []*dto.BuildResponse) ([]*dto.BuildResponse, error) {
+	if len(builds) == 0 {
+		return builds, nil
+	}
+
+	userIDs := make([]int32, 0, len(builds))
+	seenUsers := make(map[int32]struct{}, len(builds))
+	templateIDs := make([]string, 0, len(builds))
+	seenTemplates := make(map[string]struct{}, len(builds))
+	for _, b := range builds {
+		if b == nil {
+			continue
+		}
+		if _, ok := seenUsers[b.CreatorUserID]; !ok {
+			seenUsers[b.CreatorUserID] = struct{}{}
+			userIDs = append(userIDs, b.CreatorUserID)
+		}
+		if _, ok := seenTemplates[b.TemplateID]; !ok {
+			seenTemplates[b.TemplateID] = struct{}{}
+			templateIDs = append(templateIDs, b.TemplateID)
+		}
+	}
+
+	userNames := make(map[int32]string, len(userIDs))
+	if len(userIDs) > 0 {
+		users, err := s.queries.GetUsersByIDs(ctx, userIDs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch build creators: %w", err)
+		}
+		for _, u := range users {
+			userNames[u.ID] = u.Username
+		}
+	}
+
+	templateNames := make(map[string]string, len(templateIDs))
+	if len(templateIDs) > 0 {
+		templates, err := s.queries.GetTemplatesByIDs(ctx, templateIDs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch build templates: %w", err)
+		}
+		for _, t := range templates {
+			templateNames[t.ID] = t.Name
+		}
+	}
+
+	for _, b := range builds {
+		if b == nil {
+			continue
+		}
+		b.CreatorUsername = userNames[b.CreatorUserID]
+		b.TemplateName = templateNames[b.TemplateID]
+	}
+	return builds, nil
+}
+
+func (s *BuildService) UpdateBuild(ctx context.Context, requesterID int32, templateID string, req *dto.BuildUpdateRequest) (*dto.BuildResponse, error) {
 	if req == nil {
 		return nil, validationError("request is required")
 	}
-	if strings.TrimSpace(req.ID) == "" {
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
 		return nil, validationError("build id is required")
+	}
+	if requesterID <= 0 {
+		return nil, validationError("requester user id is required")
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, validationError("build name is required")
 	}
 
+	build, err := s.queries.GetBuildByIDAny(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if requesterID != build.CreatorUserID {
+		return nil, ErrForbidden
+	}
+	if err := validateBuildTemplateAccess(build.TemplateID, templateID); err != nil {
+		return nil, err
+	}
+
 	now := time.Now()
 	description := pgtype.Text{String: strings.TrimSpace(req.Description), Valid: strings.TrimSpace(req.Description) != ""}
 
-	build, err := s.queries.UpdateBuild(ctx, repository.UpdateBuildParams{
-		ID:          req.ID,
+	updated, err := s.queries.UpdateBuild(ctx, repository.UpdateBuildParams{
+		ID:          id,
 		Name:        name,
 		Description: description,
 		UpdatedAt:   pgtype.Timestamptz{Time: now, Valid: true},
@@ -183,12 +337,27 @@ func (s *BuildService) UpdateBuild(ctx context.Context, req *dto.BuildUpdateRequ
 		return nil, err
 	}
 
-	return dto.ToBuildResponseFromUpdate(&build), nil
+	resp := dto.ToBuildResponseFromUpdate(&updated)
+	enriched, err := s.enrichBuilds(ctx, []*dto.BuildResponse{resp})
+	if err != nil {
+		return nil, err
+	}
+	return enriched[0], nil
 }
 
-func (s *BuildService) DeleteBuild(ctx context.Context, id string) error {
+func (s *BuildService) DeleteBuild(ctx context.Context, requesterID int32, id string) error {
 	if strings.TrimSpace(id) == "" {
 		return validationError("build id is required")
+	}
+	if requesterID <= 0 {
+		return validationError("requester user id is required")
+	}
+	build, err := s.queries.GetBuildByIDAny(ctx, id)
+	if err != nil {
+		return err
+	}
+	if requesterID != build.CreatorUserID {
+		return ErrForbidden
 	}
 	return s.queries.DeleteBuild(ctx, id)
 }

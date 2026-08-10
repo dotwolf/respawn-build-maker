@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { Slot, SlotPosition } from '../page';
+import { clampSlotPosition, useCanvasBounds } from '../../../lib/slotPosition';
 
 interface SlotCanvasProps {
   slots: Slot[];
@@ -30,6 +31,24 @@ export default function SlotCanvas({
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const [draggingSlotIndex, setDraggingSlotIndex] = useState<number | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const bounds = useCanvasBounds(canvasRef);
+
+  useEffect(() => {
+    if (!bounds) return;
+
+    let changed = false;
+    const normalized = slots.map((slot, index) => {
+      const size = slot.size ?? SLOT_SIZE;
+      const clamped = clampSlotPosition(slot.position, size, bounds);
+      if (!slot.position || slot.position.x !== clamped.x || slot.position.y !== clamped.y) {
+        changed = true;
+        return { ...slot, position: clamped };
+      }
+      return slot;
+    });
+
+    if (changed) setSlots(normalized);
+  }, [bounds, setSlots, slots]);
 
   useEffect(() => {
     if (draggingSlotIndex === null) return;
@@ -101,8 +120,9 @@ export default function SlotCanvas({
           </div>
         ) : (
           slots.map((slot, index) => {
-            const position = slot.position ?? getDefaultPosition(index);
             const size = slot.size ?? SLOT_SIZE;
+            const rawPosition = slot.position ?? getDefaultPosition(index);
+            const position = bounds ? clampSlotPosition(rawPosition, size, bounds) : rawPosition;
 
             return (
               <button

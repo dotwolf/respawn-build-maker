@@ -1,15 +1,19 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Check, Loader2, Lock, ShieldAlert, Sparkles, X } from 'lucide-react';
+import { Bookmark, Check, Globe, Loader2, Lock, X } from 'lucide-react';
 import { apiFetch } from '../../../../lib/api';
 import { useNotification } from '../../../../components/NotificationProvider';
 import { TooltipProvider, useTooltip } from '../../../../components/TooltipProvider';
 import FormulaHelp from '../../../../components/FormulaHelp';
 import BuildOptimizerModal from '../../../../components/BuildOptimizerModal';
+import PublishBuildModal from '../../../../components/PublishBuildModal';
+import Pagination from '../../../../components/Pagination';
+import { getLocalBuild, saveLocalBuild, updateLocalBuild } from '../../../../lib/localBuilds';
+import { parseBuildComponents, toEquippedMap } from '../../../../lib/builds';
 import type { Component, Constraint, Slot, SlotStats } from '../../../new/page';
 import {
   collectClassPoints,
@@ -32,10 +36,32 @@ import {
 import type { EquippedEntry, StatSummary } from '../../../../lib/buildMath';
 import { normalizeTemplateStats, orderStats, shouldShowStatDivider, statGroupOf, statIsNegative } from '../../../../lib/stats';
 import type { StatDefinition } from '../../../../lib/stats';
+import { clampSlotPosition, useCanvasBounds } from '../../../../lib/slotPosition';
 
 interface Auth {
   user: { id: number; email?: string };
   token: string;
+}
+
+type EditorSnapshot = {
+  name: string;
+  description: string;
+  tags: string;
+  equipped: Record<string, EquippedEntry>;
+  slotLevels: Record<string, number>;
+  slotDistribution: Record<string, Record<string, number>>;
+};
+
+function snapshotsEqual(a: EditorSnapshot | null, b: EditorSnapshot): boolean {
+  if (!a) return false;
+  return (
+    a.name === b.name &&
+    a.description === b.description &&
+    a.tags === b.tags &&
+    JSON.stringify(a.equipped) === JSON.stringify(b.equipped) &&
+    JSON.stringify(a.slotLevels) === JSON.stringify(b.slotLevels) &&
+    JSON.stringify(a.slotDistribution) === JSON.stringify(b.slotDistribution)
+  );
 }
 
 function getDefaultPosition(index: number) {
@@ -110,16 +136,23 @@ function getEquipBlockReason(
 
 export default function NewTemplateBuildPage() {
   return (
-    <TooltipProvider>
-      <BuildEditor />
-    </TooltipProvider>
+    <Suspense fallback={null}>
+      <TooltipProvider>
+        <BuildEditor />
+      </TooltipProvider>
+    </Suspense>
   );
 }
 
 function BuildEditor() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const templateId = params.template_id as string;
+  const duplicateId = searchParams.get('duplicate') ?? '';
+  const editId = searchParams.get('edit') ?? '';
+  const isEditing = Boolean(editId);
+  const prefillId = duplicateId || editId;
   const { notify } = useNotification();
   const { showTooltip, refreshTooltip, hideTooltip, updatePosition } = useTooltip();
 
@@ -133,12 +166,14 @@ function BuildEditor() {
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [isPrivate, setIsPrivate] = useState(false);
   const [tags, setTags] = useState('');
 
   const [equipped, setEquipped] = useState<Record<string, EquippedEntry>>({});
   const [pickerSlot, setPickerSlot] = useState<string | null>(null);
   const [pickerFilter, setPickerFilter] = useState('');
+  const [pickerCategory, setPickerCategory] = useState('all');
+  const [pickerSort, setPickerSort] = useState<'default' | 'name_asc' | 'name_desc' | 'category'>('default');
+  const [pickerPage, setPickerPage] = useState(0);
   const [pickerPos, setPickerPos] = useState<{ x: number; y: number } | null>(null);
   const [pickerDrag, setPickerDrag] = useState<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const [slotPopover, setSlotPopover] = useState<{ slot: Slot; x: number; y: number } | null>(null);
@@ -151,32 +186,34 @@ function BuildEditor() {
   const [templateStats, setTemplateStats] = useState<StatDefinition[]>([]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [editingLocal, setEditingLocal] = useState(false);
   const [optimizerOpen, setOptimizerOpen] = useState(false);
   const [panelWidths, setPanelWidths] = useState({ left: 28, middle: 44, right: 28 });
   const [draggingDivider, setDraggingDivider] = useState<'left' | 'right' | null>(null);
+  const [prefillApplied, setPrefillApplied] = useState(false);
+  const [pendingLeave, setPendingLeave] = useState<string | null>(null);
+  const initializedRef = useRef(false);
+  const baselineRef = useRef<EditorSnapshot | null>(null);
+  const allowUnloadRef = useRef(false);
   const editorShellRef = useRef<HTMLDivElement | null>(null);
+  const slotPlaneRef = useRef<HTMLDivElement | null>(null);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const distRef = useRef<HTMLDivElement | null>(null);
   const tooltipSlotRef = useRef<string | null>(null);
+  const slotPlaneBounds = useCanvasBounds(slotPlaneRef);
 
-  // Authentication + template loading
+  // Authentication (optional — publishing requires login, local saving does not) + template loading
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
     const stored = window.localStorage.getItem('respawn-auth');
-    if (!stored) {
-      notify('You must be logged in to create a build!', 'error');
-      router.replace('/profile');
-      return;
-    }
-
-    try {
-      const parsedAuth = JSON.parse(stored) as Auth;
-      setAuth(parsedAuth);
-    } catch {
-      notify('You must be logged in to create a build!', 'error');
-      router.replace('/profile');
-      return;
+    if (stored) {
+      try {
+        setAuth(JSON.parse(stored) as Auth);
+      } catch {
+        window.localStorage.removeItem('respawn-auth');
+      }
     }
 
     if (!templateId) {
@@ -207,6 +244,74 @@ function BuildEditor() {
       .finally(() => setIsLoading(false));
   }, [templateId, notify, router]);
 
+  // Build prefill: when a `?duplicate=` or `?edit=` param is present, load the
+  // source build (local or server) and seed the editor so the user can tweak it.
+  useEffect(() => {
+    if (!prefillId || isLoading) return;
+    let cancelled = false;
+
+    const applyPrefill = (data: {
+      name?: string;
+      description?: string;
+      tags?: string[];
+      components?: unknown;
+    }) => {
+      if (cancelled) return;
+      const parsed = parseBuildComponents(data.components);
+      setName(data.name ?? '');
+      setDescription(data.description ?? '');
+      setTags(Array.isArray(data.tags) ? data.tags.join(', ') : '');
+      setEquipped(toEquippedMap(parsed, components));
+      if (parsed.slot_levels) setSlotLevels(parsed.slot_levels);
+      if (parsed.slot_distribution) setSlotDistribution(parsed.slot_distribution);
+      notify(
+        isEditing
+          ? `Loaded build "${data.name || 'Untitled build'}".`
+          : `Loaded build "${data.name || 'Untitled build'}".`,
+        'success'
+      );
+    };
+
+    getLocalBuild(prefillId)
+      .then((local) => {
+        if (cancelled) return null;
+        if (local) {
+          if (isEditing) setEditingLocal(true);
+          applyPrefill({
+            name: local.name,
+            description: local.description,
+            tags: local.tags,
+            components: {
+              slots: Object.entries(local.build.entries ?? {}).map(([slotName, entry]) => ({
+                slot_name: slotName,
+                component: entry.component,
+                tier: entry.tier,
+              })),
+              slot_levels: local.build.slotLevels ?? {},
+              slot_distribution: local.build.slotDistribution ?? {},
+            },
+          });
+          setPrefillApplied(true);
+          return null;
+        }
+        return apiFetch(`/templates/${encodeURIComponent(templateId)}/builds/${encodeURIComponent(prefillId)}`);
+      })
+      .then((serverBuild) => {
+        if (cancelled || !serverBuild) return;
+        applyPrefill(serverBuild);
+        setPrefillApplied(true);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        notify(error instanceof Error ? error.message : 'Could not load the build.', 'error');
+        setPrefillApplied(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [prefillId, isEditing, isLoading, templateId, components, notify]);
+
   // Lock body scroll during the full-screen build editor
   useEffect(() => {
     const originalOverflow = document.body.style.overflow;
@@ -216,23 +321,102 @@ function BuildEditor() {
     };
   }, []);
 
-  // Warn the user before leaving with unsaved work
+  // Snapshot the initial state once the template (and optional prefill) have
+  // loaded, so we can detect whether the user has actually changed anything.
   useEffect(() => {
+    if (initializedRef.current) return;
+    if (isLoading) return;
+    if (prefillId && !prefillApplied) return;
+    initializedRef.current = true;
+    baselineRef.current = {
+      name,
+      description,
+      tags,
+      equipped,
+      slotLevels,
+      slotDistribution,
+    };
+  }, [isLoading, prefillApplied, prefillId, name, description, tags, equipped, slotLevels, slotDistribution]);
+
+  const isDirty = useMemo(
+    () => !snapshotsEqual(baselineRef.current, {
+      name,
+      description,
+      tags,
+      equipped,
+      slotLevels,
+      slotDistribution,
+    }),
+    [name, description, tags, equipped, slotLevels, slotDistribution]
+  );
+
+  // Warn the user before leaving with unsaved work (refresh / close / unload).
+  useEffect(() => {
+    if (!isDirty) return;
+
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      const hasUnsavedContent =
-        name.trim() !== '' ||
-        description.trim() !== '' ||
-        tags.trim() !== '' ||
-        Object.keys(equipped).length > 0;
-      if (hasUnsavedContent && !isSubmitting) {
-        event.preventDefault();
-        event.returnValue = '';
-      }
+      if (allowUnloadRef.current || isSubmitting) return;
+      event.preventDefault();
+      event.returnValue = '';
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [name, description, tags, equipped, isSubmitting]);
+  }, [isDirty, isSubmitting]);
+
+  // Block in-app link navigation while there are unsaved changes and ask for
+  // confirmation instead. Uses the capture phase so it runs before the link's
+  // own handler and Next's client-side router.
+  useEffect(() => {
+    if (!isDirty) return;
+
+    const isSamePage = (href: string) => {
+      if (href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return true;
+      try {
+        const base = new URL(window.location.href);
+        const target = new URL(href, base);
+        return target.origin === base.origin && target.pathname === base.pathname && target.search === base.search;
+      } catch {
+        return true;
+      }
+    };
+
+    const handleClick = (event: MouseEvent) => {
+      if (
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey ||
+        event.defaultPrevented
+      ) {
+        return;
+      }
+      const anchor = (event.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!anchor) return;
+      if (anchor.target === '_blank' || anchor.hasAttribute('download')) return;
+      const href = anchor.getAttribute('href') ?? '';
+      if (!href || isSamePage(href)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPendingLeave(href);
+    };
+
+    document.addEventListener('click', handleClick, true);
+    return () => document.removeEventListener('click', handleClick, true);
+  }, [isDirty]);
+
+  const handleConfirmLeave = () => {
+    const href = pendingLeave;
+    if (!href) return;
+    setPendingLeave(null);
+    allowUnloadRef.current = true;
+    if (href.startsWith('/') || href.startsWith('#')) {
+      router.push(href);
+    } else {
+      window.location.assign(href);
+    }
+  };
 
   // Panel resizing via pointer events
   useEffect(() => {
@@ -275,6 +459,9 @@ function BuildEditor() {
       return;
     }
     setPickerFilter('');
+    setPickerCategory('all');
+    setPickerSort('default');
+    setPickerPage(0);
     setPickerPos({
       x: Math.max(8, Math.round((window.innerWidth - 620) / 2)),
       y: Math.max(8, Math.round((window.innerHeight - 560) / 2)),
@@ -534,54 +721,136 @@ function BuildEditor() {
     });
   };
 
-  const handleFinishBuild = async () => {
-    if (!auth) return;
-
+  const validateBeforeFinish = (): boolean => {
     if (!name.trim()) {
       notify('Build name is required.', 'error');
-      return;
+      return false;
     }
 
     if (equippedEntries.length === 0) {
       notify('Equip at least one component before finishing the build.', 'error');
-      return;
+      return false;
     }
 
     const violatedConstraints = constraintMeasures.filter((measure) => measure.status === 'violated');
     if (violatedConstraints.length > 0) {
       notify('Build violates a slot constraint — resolve it before finishing.', 'error');
+      return false;
+    }
+
+    return true;
+  };
+
+  const buildPayload = (isPrivate: boolean) => ({
+    id: isEditing ? editId : undefined,
+    name: name.trim(),
+    description: description.trim(),
+    tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+    components: {
+      slots: Object.entries(equipped).map(([slotName, entry]) => ({
+        slot_name: slotName,
+        component: entry.component,
+        tier: entry.tier,
+      })),
+      slot_levels: slotLevels,
+      slot_distribution: slotDistribution,
+    },
+    is_private: isPrivate,
+  });
+
+  const handlePublishBuild = () => {
+    if (!validateBeforeFinish()) return;
+
+    if (!auth) {
+      notify('You must be logged in to publish a build.', 'error');
+      router.push('/profile');
+      return;
+    }
+
+    setPublishOpen(true);
+  };
+
+  const handlePublishConfirm = async (isPublic: boolean) => {
+    if (!validateBeforeFinish()) {
+      setPublishOpen(false);
+      return;
+    }
+    if (!auth) {
+      setPublishOpen(false);
+      notify('You must be logged in to publish a build.', 'error');
+      router.push('/profile');
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      const payload = {
+      const response =
+        isEditing && !editingLocal
+          ? await apiFetch(`/templates/${encodeURIComponent(templateId)}/builds/${encodeURIComponent(editId)}`, {
+              method: 'PUT',
+              body: JSON.stringify(buildPayload(!isPublic)),
+            })
+          : await apiFetch(`/templates/${encodeURIComponent(templateId)}/builds`, {
+              method: 'POST',
+              body: JSON.stringify(buildPayload(!isPublic)),
+            });
+
+      notify(
+        isEditing && !editingLocal ? 'Build updated successfully.' : 'Build published successfully.',
+        'success'
+      );
+      router.push(`/templates/${templateId}/builds/${response.id}`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Could not save the build.', 'error');
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSaveLocal = async () => {
+    if (!validateBeforeFinish()) return;
+
+    try {
+      if (isEditing && editingLocal) {
+        const record = await updateLocalBuild(editId, {
+          name: name.trim(),
+          description: description.trim(),
+          tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+          template_id: templateId,
+          template_name: templateName,
+          build: {
+            entries: equipped,
+            slotLevels,
+            slotDistribution,
+            score: 0,
+            overall: 0,
+            grade: 0,
+            summary: stats,
+          },
+        });
+        notify(`Updated local build "${record.name}".`, 'success');
+        router.push(`/templates/${templateId}/builds/${record.id}`);
+        return;
+      }
+      const record = await saveLocalBuild({
         name: name.trim(),
         description: description.trim(),
         tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean),
-        components: {
-          slots: Object.entries(equipped).map(([slotName, entry]) => ({
-            slot_name: slotName,
-            component: entry.component,
-            tier: entry.tier,
-          })),
-          slot_levels: slotLevels,
-          slot_distribution: slotDistribution,
+        template_id: templateId,
+        template_name: templateName,
+        build: {
+          entries: equipped,
+          slotLevels,
+          slotDistribution,
+          score: 0,
+          overall: 0,
+          grade: 0,
+          summary: stats,
         },
-        is_private: isPrivate,
-      };
-
-      const response = await apiFetch(`/templates/${encodeURIComponent(templateId)}/builds`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
       });
-
-      notify('Build created successfully.', 'success');
-      router.push(`/templates/${templateId}/builds/${response.id}`);
+      notify(`Build saved locally as "${record.name}".`, 'success');
     } catch (error) {
-      notify(error instanceof Error ? error.message : 'Build creation failed.', 'error');
-      setIsSubmitting(false);
+      notify(error instanceof Error ? error.message : 'Could not save build locally.', 'error');
     }
   };
 
@@ -593,8 +862,9 @@ function BuildEditor() {
     if (!pickerSlotData) return [];
     const accepted = new Set(pickerSlotData.accepts);
     const query = pickerFilter.trim().toLowerCase();
-    return components.filter((component) => {
+    const filtered = components.filter((component) => {
       if (!accepted.has(component.category)) return false;
+      if (pickerCategory !== 'all' && component.category !== pickerCategory) return false;
       if (!query) return true;
       return (
         component.name.toLowerCase().includes(query) ||
@@ -602,9 +872,35 @@ function BuildEditor() {
         (component.sub_category ?? '').toLowerCase().includes(query)
       );
     });
-  }, [pickerSlotData, components, pickerFilter]);
 
-  if (isLoading || !auth) {
+    if (pickerSort === 'name_asc' || pickerSort === 'name_desc') {
+      const sorted = [...filtered].sort((a, b) => a.name.localeCompare(b.name));
+      return pickerSort === 'name_asc' ? sorted : sorted.reverse();
+    }
+    if (pickerSort === 'category') {
+      return [...filtered].sort(
+        (a, b) =>
+          a.category.localeCompare(b.category) ||
+          a.name.localeCompare(b.name) ||
+          (a.sub_category ?? '').localeCompare(b.sub_category ?? '')
+      );
+    }
+    return filtered;
+  }, [pickerSlotData, components, pickerFilter, pickerCategory, pickerSort]);
+
+  const PICKER_PAGE_SIZE = 24;
+  const pickerPageCount = Math.max(1, Math.ceil(pickerComponents.length / PICKER_PAGE_SIZE));
+  const pickerCurrentPage = Math.min(pickerPage, pickerPageCount - 1);
+  const pickerPaginatedComponents = useMemo(() => {
+    const start = pickerCurrentPage * PICKER_PAGE_SIZE;
+    return pickerComponents.slice(start, start + PICKER_PAGE_SIZE);
+  }, [pickerComponents, pickerCurrentPage]);
+
+  useEffect(() => {
+    setPickerPage(0);
+  }, [pickerFilter, pickerCategory, pickerSort]);
+
+  if (isLoading) {
     return <div className="page-header">Loading...</div>;
   }
 
@@ -626,7 +922,7 @@ function BuildEditor() {
                 Describe this build for template <strong>{templateName || templateId}</strong>.
               </p>
             </div>
-            <Link href={`/templates/${templateId}/builds`} className="button secondary small">
+            <Link href={`/builds?template=${encodeURIComponent(templateId)}`} className="button secondary small">
               Back
             </Link>
           </div>
@@ -660,15 +956,6 @@ function BuildEditor() {
                 onChange={(e) => setTags(e.target.value)}
                 placeholder="tag1, tag2"
               />
-            </label>
-
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={isPrivate}
-                onChange={(e) => setIsPrivate(e.target.checked)}
-              />
-              <span><strong>Private</strong> Only you can see this build.</span>
             </label>
           </section>
 
@@ -728,7 +1015,7 @@ function BuildEditor() {
           </div>
 
           <div className="slot-canvas">
-            <div className="slot-canvas-plane">
+            <div ref={slotPlaneRef} className="slot-canvas-plane">
               {slots.length === 0 ? (
                 <div className="empty-state large">
                   <p>This template has no slots.</p>
@@ -736,7 +1023,9 @@ function BuildEditor() {
                 </div>
               ) : (
                 slots.map((slot, index) => {
-                  const position = slot.position ?? getDefaultPosition(index);
+                  const size = slot.size ?? 96;
+                  const rawPosition = slot.position ?? getDefaultPosition(index);
+                  const position = slotPlaneBounds ? clampSlotPosition(rawPosition, size, slotPlaneBounds) : rawPosition;
                   const entry = equipped[slot.slot_name];
                   const component = entry?.component;
                   const maxLevel = component ? getMaxLevel(component) : 0;
@@ -1071,45 +1360,54 @@ function BuildEditor() {
             })()}
           </section>
 
-          <section className="rules-section">
+          <section className="rules-section optimizer-header">
             <div>
-              <h3>Build Optimizer</h3>
-              <p className="panel-subtitle">Find the best component combination for a target stat.</p>
+              <h3 style={{ margin: 0 }}>Build Optimizer</h3>
+              <p className="panel-subtitle">Set build priorities and rules to find the strongest loadouts.</p>
             </div>
-            <div className="empty-state optimizer-placeholder">
-              <Sparkles size={22} />
-              <p>Optimize your build</p>
-              <span>Set stat priorities and the optimizer will suggest the strongest loadout.</span>
-              <button
-                type="button"
-                className="button secondary small"
-                style={{ justifySelf: 'center', marginBottom: 0 }}
-                onClick={() => setOptimizerOpen(true)}
-              >
-                <Sparkles size={14} style={{ verticalAlign: '-2px', marginRight: '.35rem' }} />
-                Open Optimizer
-              </button>
-            </div>
+            <button
+              type="button"
+              className="button secondary small"
+              onClick={() => setOptimizerOpen(true)}
+            >
+              Open Optimizer
+            </button>
           </section>
 
           <div className="editor-footer">
             <div>
-              <h3>Finish Build</h3>
+              <h3>{isEditing ? 'Edit Build' : 'Publish Build'}</h3>
               <p className="panel-subtitle">
                 {equippedEntries.length > 0
                   ? `${equippedEntries.length} component${equippedEntries.length === 1 ? '' : 's'} equipped across ${Object.keys(equipped).length} slot${Object.keys(equipped).length === 1 ? '' : 's'}.`
                   : 'Equip at least one component to publish the build.'}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleFinishBuild}
-              disabled={isSubmitting}
-              style={{ minWidth: 120 }}
-            >
-              {isSubmitting ? <Loader2 size={16} className="spin" /> : null}
-              {isSubmitting ? 'Saving...' : 'Finish Build'}
-            </button>
+            <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+              {(!isEditing || editingLocal) && (
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={handleSaveLocal}
+                  disabled={isSubmitting}
+                >
+                  <Bookmark size={16} /> Save locally
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handlePublishBuild}
+                disabled={isSubmitting}
+                style={{ minWidth: 140 }}
+              >
+                {isSubmitting ? <Loader2 size={16} className="spin" /> : <Globe size={16} />}
+                {isSubmitting
+                  ? 'Saving...'
+                  : isEditing && !editingLocal
+                    ? 'Save Changes'
+                    : 'Publish Build'}
+              </button>
+            </div>
           </div>
         </section>
       </div>
@@ -1366,6 +1664,23 @@ function BuildEditor() {
               onChange={(e) => setPickerFilter(e.target.value)}
               placeholder="Search by name or category…"
             />
+            <div className="build-picker-filter-row">
+              <select value={pickerCategory} onChange={(e) => setPickerCategory(e.target.value)}>
+                <option value="all">All categories</option>
+                {pickerSlotData.accepts.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+              <select
+                value={pickerSort}
+                onChange={(e) => setPickerSort(e.target.value as 'default' | 'name_asc' | 'name_desc' | 'category')}
+              >
+                <option value="default">Default order</option>
+                <option value="name_asc">Name A–Z</option>
+                <option value="name_desc">Name Z–A</option>
+                <option value="category">Category</option>
+              </select>
+            </div>
           </label>
 
           {pickerComponents.length === 0 ? (
@@ -1374,8 +1689,9 @@ function BuildEditor() {
               <span>{pickerSlotData.accepts.join(', ') || 'No accepted categories.'}</span>
             </div>
           ) : (
-            <div className="component-grid build-picker-grid">
-              {pickerComponents.map((component) => {
+            <>
+              <div className="component-grid build-picker-grid">
+              {pickerPaginatedComponents.map((component) => {
                 const currentEntry = equipped[pickerSlotData.slot_name];
                 const isCurrent = currentEntry?.component === component;
                 const hasLevels = getMaxLevel(component) > 0;
@@ -1458,7 +1774,15 @@ function BuildEditor() {
                   </div>
                 );
               })}
-            </div>
+              </div>
+              <Pagination
+                page={pickerCurrentPage}
+                pageCount={pickerPageCount}
+                total={pickerComponents.length}
+                pageSize={PICKER_PAGE_SIZE}
+                onPageChange={setPickerPage}
+              />
+            </>
           )}
 
           <div className="modal-footer">
@@ -1473,6 +1797,7 @@ function BuildEditor() {
         createPortal(
           <BuildOptimizerModal
             templateId={templateId}
+            templateName={templateName}
             slots={slots}
             components={components}
             constraints={constraints}
@@ -1489,7 +1814,7 @@ function BuildEditor() {
               setOptimizerOpen(false);
               notify(
                 Object.keys(build.entries).length > 0
-                  ? `Optimized build applied — ${Object.keys(build.entries).length} components equipped, slot levels and points updated.`
+                  ? `Optimized build applied. ${Object.keys(build.entries).length} components equipped, slot levels and points updated.`
                   : 'Optimized build applied.',
                 'success'
               );
@@ -1497,6 +1822,43 @@ function BuildEditor() {
           />,
           document.body
         )}
+
+      {publishOpen && (
+        <PublishBuildModal
+          buildName={name.trim() || 'Untitled build'}
+          publishing={isSubmitting}
+          onClose={() => setPublishOpen(false)}
+          onPublish={handlePublishConfirm}
+        />
+      )}
+
+      {pendingLeave && (
+        <div className="modal-overlay" onClick={() => setPendingLeave(null)}>
+          <div
+            className="modal-content"
+            style={{ maxWidth: 440, padding: '1.5rem' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-actions-bar">
+              <h3 style={{ margin: 0 }}>Discard changes?</h3>
+            </div>
+            <p style={{ marginTop: '1rem' }}>
+              You have unsaved changes. Leaving this page will discard your build.
+            </p>
+            <div
+              className="modal-footer"
+              style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}
+            >
+              <button type="button" className="button secondary" onClick={() => setPendingLeave(null)}>
+                Stay
+              </button>
+              <button type="button" className="button" onClick={handleConfirmLeave}>
+                Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

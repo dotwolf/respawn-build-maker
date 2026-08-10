@@ -1,0 +1,46 @@
+# Respawn Build Maker
+
+> RPG build planner for any game. Create a Template that defines a game's
+> stats, items, equipment slots, and level rules, then craft, share, and vote
+> on character Builds inside it.
+
+## About
+
+Respawn Build Maker is a web platform for designing and sharing RPG character
+builds. The core idea is a two-layer model:
+
+- **Template** — the rulebook for a game. A template defines stats, equipment
+  slots, an item/component pool, level-up rules, and constraints.
+- **Build** — a character configuration made inside a template: which items
+  are equipped, at what level/tier, with which components socketed, and how
+  stat points are spent.
+
+Anyone can create a template for any game, keep it updated as the game
+changes, and let the community submit suggestions and vote on builds.
+
+No account is required to explore. Templates and builds can also be kept
+private, or you can sign in with Google to publish and share them publicly.
+
+## Key pages
+
+- Home: /
+- Browse templates: /templates
+- Browse public builds: /builds
+- Template detail: /templates/{template_id}
+- Template builds list: /templates/{template_id}/builds
+- Build detail: /templates/{template_id}/builds/{build_id}
+- Create a template (requires account): /templates/new
+
+## Public API
+
+- GET /templates — list public templates
+- GET /templates/{id} — template detail with rules, stats, and components
+- GET /public/builds — list public builds
+- GET /templates/{template_id}/builds — list builds for a template
+- GET /templates/{template_id}/builds/{build_id} — build detail
+- GET /stats — platform counts (templates, builds, likes)
+
+## Stack
+
+Frontend: Next.js (App Router). Backend: Go (Gin). Database: PostgreSQL.
+Auth: Google OAuth with JWT.

@@ -11,6 +11,151 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const acceptSuggestion = `-- name: AcceptSuggestion :one
+UPDATE template_suggestions
+SET
+    status = 'accepted',
+    author_notified = FALSE,
+    updated_at = $3
+WHERE id = $1 AND template_id = $2
+RETURNING id, template_id, author_user_id, description, components, status, author_notified, created_at, updated_at
+`
+
+type AcceptSuggestionParams struct {
+	ID         string
+	TemplateID string
+	UpdatedAt  pgtype.Timestamptz
+}
+
+func (q *Queries) AcceptSuggestion(ctx context.Context, arg AcceptSuggestionParams) (TemplateSuggestion, error) {
+	row := q.db.QueryRow(ctx, acceptSuggestion, arg.ID, arg.TemplateID, arg.UpdatedAt)
+	var i TemplateSuggestion
+	err := row.Scan(
+		&i.ID,
+		&i.TemplateID,
+		&i.AuthorUserID,
+		&i.Description,
+		&i.Components,
+		&i.Status,
+		&i.AuthorNotified,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const countAcceptedSuggestionsForAuthorUnnotified = `-- name: CountAcceptedSuggestionsForAuthorUnnotified :one
+SELECT COUNT(*)
+FROM template_suggestions
+WHERE author_user_id = $1 AND status = 'accepted' AND author_notified = FALSE
+`
+
+func (q *Queries) CountAcceptedSuggestionsForAuthorUnnotified(ctx context.Context, authorUserID int32) (int64, error) {
+	row := q.db.QueryRow(ctx, countAcceptedSuggestionsForAuthorUnnotified, authorUserID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countBuildsByUser = `-- name: CountBuildsByUser :one
+SELECT COUNT(*)
+FROM builds
+WHERE creator_user_id = $1
+`
+
+func (q *Queries) CountBuildsByUser(ctx context.Context, creatorUserID int32) (int64, error) {
+	row := q.db.QueryRow(ctx, countBuildsByUser, creatorUserID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countLikedBuildsByUser = `-- name: CountLikedBuildsByUser :one
+SELECT COUNT(*)
+FROM build_votes v
+JOIN builds b ON b.id = v.build_id
+WHERE v.user_id = $1 AND v.value = 1 AND (b.is_private = FALSE OR b.creator_user_id = $1)
+`
+
+func (q *Queries) CountLikedBuildsByUser(ctx context.Context, userID int32) (int64, error) {
+	row := q.db.QueryRow(ctx, countLikedBuildsByUser, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countPendingSuggestionsForOwner = `-- name: CountPendingSuggestionsForOwner :one
+SELECT COUNT(*)
+FROM template_suggestions s
+JOIN templates t ON t.id = s.template_id
+WHERE t.creator_user_id = $1 AND s.status = 'pending'
+`
+
+func (q *Queries) CountPendingSuggestionsForOwner(ctx context.Context, creatorUserID int32) (int64, error) {
+	row := q.db.QueryRow(ctx, countPendingSuggestionsForOwner, creatorUserID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countPublicBuildVotes = `-- name: CountPublicBuildVotes :one
+SELECT COUNT(*)
+FROM build_votes v
+JOIN builds b ON b.id = v.build_id
+WHERE v.value = 1 AND b.is_private = FALSE
+`
+
+func (q *Queries) CountPublicBuildVotes(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countPublicBuildVotes)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countPublicBuilds = `-- name: CountPublicBuilds :one
+SELECT COUNT(*)
+FROM builds
+WHERE is_private = FALSE
+`
+
+func (q *Queries) CountPublicBuilds(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countPublicBuilds)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countPublicTemplates = `-- name: CountPublicTemplates :one
+SELECT COUNT(*)
+FROM templates
+WHERE is_private = FALSE
+`
+
+func (q *Queries) CountPublicTemplates(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countPublicTemplates)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countTemplatesByUser = `-- name: CountTemplatesByUser :one
+SELECT COUNT(*)
+FROM templates
+WHERE creator_user_id = $1 AND (is_private = FALSE OR $2::integer = creator_user_id)
+`
+
+type CountTemplatesByUserParams struct {
+	CreatorUserID int32
+	RequesterID   int32
+}
+
+func (q *Queries) CountTemplatesByUser(ctx context.Context, arg CountTemplatesByUserParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countTemplatesByUser, arg.CreatorUserID, arg.RequesterID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUsers = `-- name: CountUsers :one
 SELECT COUNT(*) FROM users
 `
@@ -175,6 +320,61 @@ func (q *Queries) CreateComponent(ctx context.Context, arg CreateComponentParams
 	return i, err
 }
 
+const createSuggestion = `-- name: CreateSuggestion :one
+INSERT INTO template_suggestions (
+    id,
+    template_id,
+    author_user_id,
+    description,
+    components,
+    status,
+    author_notified,
+    created_at,
+    updated_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9
+) RETURNING id, template_id, author_user_id, description, components, status, author_notified, created_at, updated_at
+`
+
+type CreateSuggestionParams struct {
+	ID             string
+	TemplateID     string
+	AuthorUserID   int32
+	Description    pgtype.Text
+	Components     []byte
+	Status         string
+	AuthorNotified bool
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+func (q *Queries) CreateSuggestion(ctx context.Context, arg CreateSuggestionParams) (TemplateSuggestion, error) {
+	row := q.db.QueryRow(ctx, createSuggestion,
+		arg.ID,
+		arg.TemplateID,
+		arg.AuthorUserID,
+		arg.Description,
+		arg.Components,
+		arg.Status,
+		arg.AuthorNotified,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	var i TemplateSuggestion
+	err := row.Scan(
+		&i.ID,
+		&i.TemplateID,
+		&i.AuthorUserID,
+		&i.Description,
+		&i.Components,
+		&i.Status,
+		&i.AuthorNotified,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createTemplate = `-- name: CreateTemplate :one
 INSERT INTO templates (
     id,
@@ -185,24 +385,26 @@ INSERT INTO templates (
     rules,
     components,
     is_private,
+    allow_suggestions,
     created_at,
     updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+) RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
 `
 
 type CreateTemplateParams struct {
-	ID            string
-	Name          string
-	Description   pgtype.Text
-	CreatorUserID int32
-	Stats         []byte
-	Rules         []byte
-	Components    []byte
-	IsPrivate     bool
-	CreatedAt     pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
+	ID               string
+	Name             string
+	Description      pgtype.Text
+	CreatorUserID    int32
+	Stats            []byte
+	Rules            []byte
+	Components       []byte
+	IsPrivate        bool
+	AllowSuggestions bool
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
 }
 
 func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) (Template, error) {
@@ -215,6 +417,7 @@ func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) 
 		arg.Rules,
 		arg.Components,
 		arg.IsPrivate,
+		arg.AllowSuggestions,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -228,6 +431,7 @@ func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) 
 		&i.Rules,
 		&i.Components,
 		&i.IsPrivate,
+		&i.AllowSuggestions,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -328,6 +532,21 @@ func (q *Queries) DeleteComponent(ctx context.Context, arg DeleteComponentParams
 	return err
 }
 
+const deleteComponentsByScopedNumberList = `-- name: DeleteComponentsByScopedNumberList :exec
+DELETE FROM components
+WHERE template_id = $1 AND scoped_number = ANY($2::int[])
+`
+
+type DeleteComponentsByScopedNumberListParams struct {
+	TemplateID    string
+	ScopedNumbers []int32
+}
+
+func (q *Queries) DeleteComponentsByScopedNumberList(ctx context.Context, arg DeleteComponentsByScopedNumberListParams) error {
+	_, err := q.db.Exec(ctx, deleteComponentsByScopedNumberList, arg.TemplateID, arg.ScopedNumbers)
+	return err
+}
+
 const deleteComponentsByScopedNumbers = `-- name: DeleteComponentsByScopedNumbers :exec
 DELETE FROM components
 WHERE template_id = $1 AND NOT (scoped_number = ANY($2::int[]))
@@ -340,6 +559,16 @@ type DeleteComponentsByScopedNumbersParams struct {
 
 func (q *Queries) DeleteComponentsByScopedNumbers(ctx context.Context, arg DeleteComponentsByScopedNumbersParams) error {
 	_, err := q.db.Exec(ctx, deleteComponentsByScopedNumbers, arg.TemplateID, arg.ScopedNumbers)
+	return err
+}
+
+const deleteSuggestion = `-- name: DeleteSuggestion :exec
+DELETE FROM template_suggestions
+WHERE id = $1
+`
+
+func (q *Queries) DeleteSuggestion(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, deleteSuggestion, id)
 	return err
 }
 
@@ -512,8 +741,61 @@ func (q *Queries) GetComponentByID(ctx context.Context, arg GetComponentByIDPara
 	return i, err
 }
 
+const getPendingSuggestionByTemplateAndAuthor = `-- name: GetPendingSuggestionByTemplateAndAuthor :one
+SELECT id, template_id, author_user_id, description, components, status, author_notified, created_at, updated_at
+FROM template_suggestions
+WHERE template_id = $1 AND author_user_id = $2 AND status = 'pending'
+LIMIT 1
+`
+
+type GetPendingSuggestionByTemplateAndAuthorParams struct {
+	TemplateID   string
+	AuthorUserID int32
+}
+
+func (q *Queries) GetPendingSuggestionByTemplateAndAuthor(ctx context.Context, arg GetPendingSuggestionByTemplateAndAuthorParams) (TemplateSuggestion, error) {
+	row := q.db.QueryRow(ctx, getPendingSuggestionByTemplateAndAuthor, arg.TemplateID, arg.AuthorUserID)
+	var i TemplateSuggestion
+	err := row.Scan(
+		&i.ID,
+		&i.TemplateID,
+		&i.AuthorUserID,
+		&i.Description,
+		&i.Components,
+		&i.Status,
+		&i.AuthorNotified,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getSuggestionByID = `-- name: GetSuggestionByID :one
+SELECT id, template_id, author_user_id, description, components, status, author_notified, created_at, updated_at
+FROM template_suggestions
+WHERE id = $1
+LIMIT 1
+`
+
+func (q *Queries) GetSuggestionByID(ctx context.Context, id string) (TemplateSuggestion, error) {
+	row := q.db.QueryRow(ctx, getSuggestionByID, id)
+	var i TemplateSuggestion
+	err := row.Scan(
+		&i.ID,
+		&i.TemplateID,
+		&i.AuthorUserID,
+		&i.Description,
+		&i.Components,
+		&i.Status,
+		&i.AuthorNotified,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getTemplateByID = `-- name: GetTemplateByID :one
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE id = $1 AND is_private = FALSE
 LIMIT 1
@@ -531,6 +813,7 @@ func (q *Queries) GetTemplateByID(ctx context.Context, id string) (Template, err
 		&i.Rules,
 		&i.Components,
 		&i.IsPrivate,
+		&i.AllowSuggestions,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -538,7 +821,7 @@ func (q *Queries) GetTemplateByID(ctx context.Context, id string) (Template, err
 }
 
 const getTemplateByIDAny = `-- name: GetTemplateByIDAny :one
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE id = $1
 LIMIT 1
@@ -556,6 +839,7 @@ func (q *Queries) GetTemplateByIDAny(ctx context.Context, id string) (Template, 
 		&i.Rules,
 		&i.Components,
 		&i.IsPrivate,
+		&i.AllowSuggestions,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -574,6 +858,37 @@ func (q *Queries) GetTemplateCreatorByID(ctx context.Context, id string) (int32,
 	var creator_user_id int32
 	err := row.Scan(&creator_user_id)
 	return creator_user_id, err
+}
+
+const getTemplatesByIDs = `-- name: GetTemplatesByIDs :many
+SELECT id, name
+FROM templates
+WHERE id = ANY($1::text[])
+`
+
+type GetTemplatesByIDsRow struct {
+	ID   string
+	Name string
+}
+
+func (q *Queries) GetTemplatesByIDs(ctx context.Context, dollar_1 []string) ([]GetTemplatesByIDsRow, error) {
+	rows, err := q.db.Query(ctx, getTemplatesByIDs, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetTemplatesByIDsRow
+	for rows.Next() {
+		var i GetTemplatesByIDsRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
@@ -733,6 +1048,40 @@ func (q *Queries) LinkUserGoogleSub(ctx context.Context, arg LinkUserGoogleSubPa
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listAcceptedSuggestionsForAuthorUnnotified = `-- name: ListAcceptedSuggestionsForAuthorUnnotified :many
+SELECT s.id, s.template_id, t.name
+FROM template_suggestions s
+JOIN templates t ON t.id = s.template_id
+WHERE s.author_user_id = $1 AND s.status = 'accepted' AND s.author_notified = FALSE
+ORDER BY s.updated_at DESC
+`
+
+type ListAcceptedSuggestionsForAuthorUnnotifiedRow struct {
+	ID         string
+	TemplateID string
+	Name       string
+}
+
+func (q *Queries) ListAcceptedSuggestionsForAuthorUnnotified(ctx context.Context, authorUserID int32) ([]ListAcceptedSuggestionsForAuthorUnnotifiedRow, error) {
+	rows, err := q.db.Query(ctx, listAcceptedSuggestionsForAuthorUnnotified, authorUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAcceptedSuggestionsForAuthorUnnotifiedRow
+	for rows.Next() {
+		var i ListAcceptedSuggestionsForAuthorUnnotifiedRow
+		if err := rows.Scan(&i.ID, &i.TemplateID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listBuildSlotsByBuild = `-- name: ListBuildSlotsByBuild :many
@@ -945,8 +1294,224 @@ func (q *Queries) ListComponentsByTemplate(ctx context.Context, arg ListComponen
 	return items, nil
 }
 
+const listLikedBuildsByUser = `-- name: ListLikedBuildsByUser :many
+SELECT b.id, b.name, b.description, b.creator_user_id, b.template_id, b.created_at, b.updated_at, b.tags, b.vote_score, b.components, b.is_private
+FROM build_votes v
+JOIN builds b ON b.id = v.build_id
+WHERE v.user_id = $1 AND v.value = 1 AND (b.is_private = FALSE OR b.creator_user_id = $1)
+ORDER BY v.created_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListLikedBuildsByUserParams struct {
+	UserID int32
+	Limit  int32
+	Offset int32
+}
+
+type ListLikedBuildsByUserRow struct {
+	ID            string
+	Name          string
+	Description   pgtype.Text
+	CreatorUserID int32
+	TemplateID    string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	Tags          []string
+	VoteScore     int32
+	Components    []byte
+	IsPrivate     bool
+}
+
+func (q *Queries) ListLikedBuildsByUser(ctx context.Context, arg ListLikedBuildsByUserParams) ([]ListLikedBuildsByUserRow, error) {
+	rows, err := q.db.Query(ctx, listLikedBuildsByUser, arg.UserID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLikedBuildsByUserRow
+	for rows.Next() {
+		var i ListLikedBuildsByUserRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.CreatorUserID,
+			&i.TemplateID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Tags,
+			&i.VoteScore,
+			&i.Components,
+			&i.IsPrivate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingSuggestionCountsForOwner = `-- name: ListPendingSuggestionCountsForOwner :many
+SELECT t.id AS template_id, t.name AS template_name, COUNT(s.id) AS pending_count
+FROM templates t
+LEFT JOIN template_suggestions s ON s.template_id = t.id AND s.status = 'pending'
+WHERE t.creator_user_id = $1
+GROUP BY t.id, t.name
+HAVING COUNT(s.id) > 0
+ORDER BY t.name ASC
+`
+
+type ListPendingSuggestionCountsForOwnerRow struct {
+	TemplateID   string
+	TemplateName string
+	PendingCount int64
+}
+
+func (q *Queries) ListPendingSuggestionCountsForOwner(ctx context.Context, creatorUserID int32) ([]ListPendingSuggestionCountsForOwnerRow, error) {
+	rows, err := q.db.Query(ctx, listPendingSuggestionCountsForOwner, creatorUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPendingSuggestionCountsForOwnerRow
+	for rows.Next() {
+		var i ListPendingSuggestionCountsForOwnerRow
+		if err := rows.Scan(&i.TemplateID, &i.TemplateName, &i.PendingCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPublicBuilds = `-- name: ListPublicBuilds :many
+SELECT id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
+FROM builds
+WHERE is_private = FALSE
+ORDER BY created_at DESC
+LIMIT $2 OFFSET $1
+`
+
+type ListPublicBuildsParams struct {
+	Offset int32
+	Limit  int32
+}
+
+type ListPublicBuildsRow struct {
+	ID            string
+	Name          string
+	Description   pgtype.Text
+	CreatorUserID int32
+	TemplateID    string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	Tags          []string
+	VoteScore     int32
+	Components    []byte
+	IsPrivate     bool
+}
+
+func (q *Queries) ListPublicBuilds(ctx context.Context, arg ListPublicBuildsParams) ([]ListPublicBuildsRow, error) {
+	rows, err := q.db.Query(ctx, listPublicBuilds, arg.Offset, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPublicBuildsRow
+	for rows.Next() {
+		var i ListPublicBuildsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.CreatorUserID,
+			&i.TemplateID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Tags,
+			&i.VoteScore,
+			&i.Components,
+			&i.IsPrivate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPublicBuildsByTemplate = `-- name: ListPublicBuildsByTemplate :many
+SELECT id, name, description, creator_user_id, template_id, created_at, updated_at, tags, vote_score, components, is_private
+FROM builds
+WHERE is_private = FALSE AND template_id = $1
+ORDER BY created_at DESC
+LIMIT $3 OFFSET $2
+`
+
+type ListPublicBuildsByTemplateParams struct {
+	TemplateID string
+	Offset     int32
+	Limit      int32
+}
+
+type ListPublicBuildsByTemplateRow struct {
+	ID            string
+	Name          string
+	Description   pgtype.Text
+	CreatorUserID int32
+	TemplateID    string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	Tags          []string
+	VoteScore     int32
+	Components    []byte
+	IsPrivate     bool
+}
+
+func (q *Queries) ListPublicBuildsByTemplate(ctx context.Context, arg ListPublicBuildsByTemplateParams) ([]ListPublicBuildsByTemplateRow, error) {
+	rows, err := q.db.Query(ctx, listPublicBuildsByTemplate, arg.TemplateID, arg.Offset, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPublicBuildsByTemplateRow
+	for rows.Next() {
+		var i ListPublicBuildsByTemplateRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.CreatorUserID,
+			&i.TemplateID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Tags,
+			&i.VoteScore,
+			&i.Components,
+			&i.IsPrivate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPublicTemplates = `-- name: ListPublicTemplates :many
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE is_private = FALSE
 ORDER BY created_at DESC
@@ -976,6 +1541,51 @@ func (q *Queries) ListPublicTemplates(ctx context.Context, arg ListPublicTemplat
 			&i.Rules,
 			&i.Components,
 			&i.IsPrivate,
+			&i.AllowSuggestions,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSuggestionsByTemplate = `-- name: ListSuggestionsByTemplate :many
+SELECT id, template_id, author_user_id, description, components, status, author_notified, created_at, updated_at
+FROM template_suggestions
+WHERE template_id = $1 AND status = 'pending'
+ORDER BY created_at ASC
+LIMIT $2 OFFSET $3
+`
+
+type ListSuggestionsByTemplateParams struct {
+	TemplateID string
+	Limit      int32
+	Offset     int32
+}
+
+func (q *Queries) ListSuggestionsByTemplate(ctx context.Context, arg ListSuggestionsByTemplateParams) ([]TemplateSuggestion, error) {
+	rows, err := q.db.Query(ctx, listSuggestionsByTemplate, arg.TemplateID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TemplateSuggestion
+	for rows.Next() {
+		var i TemplateSuggestion
+		if err := rows.Scan(
+			&i.ID,
+			&i.TemplateID,
+			&i.AuthorUserID,
+			&i.Description,
+			&i.Components,
+			&i.Status,
+			&i.AuthorNotified,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -990,7 +1600,7 @@ func (q *Queries) ListPublicTemplates(ctx context.Context, arg ListPublicTemplat
 }
 
 const listTemplatesByUser = `-- name: ListTemplatesByUser :many
-SELECT id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
+SELECT id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
 FROM templates
 WHERE creator_user_id = $1 AND (is_private = FALSE OR $2::integer = creator_user_id)
 ORDER BY created_at DESC
@@ -1027,6 +1637,7 @@ func (q *Queries) ListTemplatesByUser(ctx context.Context, arg ListTemplatesByUs
 			&i.Rules,
 			&i.Components,
 			&i.IsPrivate,
+			&i.AllowSuggestions,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -1086,6 +1697,17 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUse
 		return nil, err
 	}
 	return items, nil
+}
+
+const markSuggestionAuthorNotified = `-- name: MarkSuggestionAuthorNotified :exec
+UPDATE template_suggestions
+SET author_notified = TRUE
+WHERE id = ANY($1::text[])
+`
+
+func (q *Queries) MarkSuggestionAuthorNotified(ctx context.Context, dollar_1 []string) error {
+	_, err := q.db.Exec(ctx, markSuggestionAuthorNotified, dollar_1)
+	return err
 }
 
 const updateBuild = `-- name: UpdateBuild :one
@@ -1271,6 +1893,45 @@ func (q *Queries) UpdateComponent(ctx context.Context, arg UpdateComponentParams
 	return i, err
 }
 
+const updateSuggestion = `-- name: UpdateSuggestion :one
+UPDATE template_suggestions
+SET
+    description = $1,
+    components = $2,
+    updated_at = $3
+WHERE id = $4
+RETURNING id, template_id, author_user_id, description, components, status, author_notified, created_at, updated_at
+`
+
+type UpdateSuggestionParams struct {
+	Description pgtype.Text
+	Components  []byte
+	UpdatedAt   pgtype.Timestamptz
+	ID          string
+}
+
+func (q *Queries) UpdateSuggestion(ctx context.Context, arg UpdateSuggestionParams) (TemplateSuggestion, error) {
+	row := q.db.QueryRow(ctx, updateSuggestion,
+		arg.Description,
+		arg.Components,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	var i TemplateSuggestion
+	err := row.Scan(
+		&i.ID,
+		&i.TemplateID,
+		&i.AuthorUserID,
+		&i.Description,
+		&i.Components,
+		&i.Status,
+		&i.AuthorNotified,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateTemplate = `-- name: UpdateTemplate :one
 UPDATE templates
 SET
@@ -1279,19 +1940,21 @@ SET
     stats = COALESCE($3, stats),
     rules = $4,
     is_private = $5,
-    updated_at = $6
-WHERE id = $7
-RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, created_at, updated_at
+    allow_suggestions = $6,
+    updated_at = $7
+WHERE id = $8
+RETURNING id, name, description, creator_user_id, stats, rules, components, is_private, allow_suggestions, created_at, updated_at
 `
 
 type UpdateTemplateParams struct {
-	Name        string
-	Description pgtype.Text
-	Stats       []byte
-	Rules       []byte
-	IsPrivate   bool
-	UpdatedAt   pgtype.Timestamptz
-	ID          string
+	Name             string
+	Description      pgtype.Text
+	Stats            []byte
+	Rules            []byte
+	IsPrivate        bool
+	AllowSuggestions bool
+	UpdatedAt        pgtype.Timestamptz
+	ID               string
 }
 
 func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) (Template, error) {
@@ -1301,6 +1964,7 @@ func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) 
 		arg.Stats,
 		arg.Rules,
 		arg.IsPrivate,
+		arg.AllowSuggestions,
 		arg.UpdatedAt,
 		arg.ID,
 	)
@@ -1314,6 +1978,7 @@ func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) 
 		&i.Rules,
 		&i.Components,
 		&i.IsPrivate,
+		&i.AllowSuggestions,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

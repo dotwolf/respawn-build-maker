@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { DragEvent } from 'react';
 import { X } from 'lucide-react';
 import type { StatDefinition } from '../../../lib/stats';
+import HelpTip from '../../../components/HelpTip';
 
 interface TemplateBasicsStepProps {
   name: string;
@@ -11,6 +12,8 @@ interface TemplateBasicsStepProps {
   setDescription: (description: string) => void;
   isPrivate: boolean;
   setIsPrivate: (isPrivate: boolean) => void;
+  allowSuggestions: boolean;
+  setAllowSuggestions: (allowSuggestions: boolean) => void;
   stats: StatDefinition[];
   setStats: (updater: (prev: StatDefinition[]) => StatDefinition[]) => void;
   readOnly?: boolean;
@@ -60,6 +63,8 @@ export default function TemplateBasicsStep({
   setDescription,
   isPrivate,
   setIsPrivate,
+  allowSuggestions,
+  setAllowSuggestions,
   stats,
   setStats,
   readOnly = false,
@@ -415,6 +420,31 @@ export default function TemplateBasicsStep({
           onChange={(e) => setIsPrivate(e.target.checked)}
         />
         <span><strong>Private</strong> Only you can see and use this template.</span>
+      </label>
+
+      <label className="checkbox-label checkbox-with-help">
+        <input
+          type="checkbox"
+          checked={allowSuggestions}
+          disabled={readOnly}
+          onChange={(e) => setAllowSuggestions(e.target.checked)}
+        />
+        <span>
+          <strong>Allow public suggestions<HelpTip title="Public inventory suggestions">
+            <p>
+              When enabled, anyone visiting this template can propose component changes in the
+              inventory pool. You review each suggestion and can accept or delete it. As the creator,
+              you are still in complete control of the component pool.
+            </p>
+            <div className="help-tip-sub">How it works</div>
+            <ul>
+              <li>Each visitor can keep one pending suggestion per template.</li>
+              <li>You review suggestions from the template&apos;s edit page.</li>
+              <li>Visitors can suggest edits, additions and deletions to components.</li>
+            </ul>
+          </HelpTip></strong>
+          
+        </span>
       </label>
 
       {isStatOrderOpen &&

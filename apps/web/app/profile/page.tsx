@@ -2,9 +2,12 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Eye, EyeOff, Plus, Search, Lock, Sparkles, User, LogOut, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Plus, Search, Lock, CalendarDays, Pencil, User, LogOut, Trash2 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
+import { normalizeTemplateStats } from '../lib/stats';
 import { useNotification } from '../components/NotificationProvider';
+import LocalBuildsSection from '../components/LocalBuildsSection';
+import PublishedBuildsSection from '../components/PublishedBuildsSection';
 
 type GoogleCredentialResponse = {
   credential?: string;
@@ -49,7 +52,9 @@ type TemplateSummary = {
   name: string;
   description?: string | null;
   creator_user_id: number;
+  creator_username?: string | null;
   created_at?: string;
+  updated_at?: string;
   is_private?: boolean;
   stats?: string[];
 };
@@ -61,7 +66,7 @@ function formatDate(value?: string) {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 export default function ProfilePage() {
@@ -72,6 +77,10 @@ export default function ProfilePage() {
   const [loginPassword, setLoginPassword] = useState('');
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
+  const [templateCount, setTemplateCount] = useState(0);
+  const [publishedCount, setPublishedCount] = useState(0);
+  const [likedCount, setLikedCount] = useState(0);
+  const [pendingSuggestionCount, setPendingSuggestionCount] = useState(0);
   const [templateQuery, setTemplateQuery] = useState('');
   const [templateSort, setTemplateSort] = useState<'newest' | 'oldest' | 'name'>('newest');
   const [loadingTemplates, setLoadingTemplates] = useState(false);
@@ -155,11 +164,24 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!auth?.user.id) return;
+    const userId = encodeURIComponent(String(auth.user.id));
     setLoadingTemplates(true);
-    apiFetch(`/templates?user_id=${encodeURIComponent(String(auth.user.id))}`)
+    apiFetch(`/templates?user_id=${userId}&limit=100`)
       .then((data) => setTemplates(Array.isArray(data) ? data : []))
       .catch(() => setTemplates([]))
       .finally(() => setLoadingTemplates(false));
+    apiFetch(`/templates/count?user_id=${userId}`)
+      .then((data) => setTemplateCount(typeof data?.count === 'number' ? data.count : 0))
+      .catch(() => setTemplateCount(0));
+    apiFetch('/builds/count')
+      .then((data) => setPublishedCount(typeof data?.count === 'number' ? data.count : 0))
+      .catch(() => setPublishedCount(0));
+    apiFetch('/builds/liked/count')
+      .then((data) => setLikedCount(typeof data?.count === 'number' ? data.count : 0))
+      .catch(() => setLikedCount(0));
+    apiFetch('/me/suggestions/count')
+      .then((data) => setPendingSuggestionCount(typeof data?.count === 'number' ? data.count : 0))
+      .catch(() => setPendingSuggestionCount(0));
   }, [auth?.user.id]);
 
   const filteredTemplates = useMemo(() => {
@@ -380,11 +402,12 @@ export default function ProfilePage() {
               </button>
             </section>
           </div>
+
+          <LocalBuildsSection emptyMessage="No locally saved builds yet. Sign in to create templates and publish builds — or save optimizer builds locally in your browser to keep them here." />
         </>
       ) : (
         <>
           <section className="profile-hero">
-            <div className="avatar">{auth.user.username.slice(0, 1)}</div>
             <div>
               <h1>{auth.user.username}</h1>
               <p className="sub">
@@ -393,11 +416,29 @@ export default function ProfilePage() {
             </div>
             <div className="profile-stats">
               <div className="profile-stat">
-                <strong>{templates.length}</strong>
+                <strong>{templateCount}</strong>
                 <span>templates</span>
               </div>
+              <div className="profile-stat">
+                <strong>{publishedCount}</strong>
+                <span>builds published</span>
+              </div>
+              <div className="profile-stat">
+                <strong>{likedCount}</strong>
+                <span>builds liked</span>
+              </div>
+              {pendingSuggestionCount > 0 && (
+                <div className="profile-stat">
+                  <strong className="badge accent">{pendingSuggestionCount}</strong>
+                  <span>suggestions to review</span>
+                </div>
+              )}
             </div>
           </section>
+
+          <LocalBuildsSection />
+
+          <PublishedBuildsSection />
 
           <section className="card" style={{ padding: '1.5rem' }}>
             <div className="page-header" style={{ marginBottom: '1rem' }}>
@@ -453,7 +494,6 @@ export default function ProfilePage() {
               <p className="loading-placeholder">Fetching your templates...</p>
             ) : filteredTemplates.length === 0 ? (
               <div className="empty-state-card">
-                <Sparkles size={28} style={{ margin: '0 auto .5rem', opacity: 0.6 }} />
                 <p style={{ margin: 0 }}>
                   {templateQuery.trim()
                     ? 'No templates match your search.'
@@ -464,25 +504,42 @@ export default function ProfilePage() {
               <div className="template-grid" style={{ marginTop: '1rem' }}>
                 {filteredTemplates.map((template) => (
                   <article key={template.id} className="template-card">
-                    <div className="template-meta">
-                      {template.is_private && (
+                    {template.is_private && (
+                      <div className="template-meta">
                         <span className="badge private"><Lock size={12} /> Private</span>
-                      )}
-                      {Array.isArray(template.stats) && template.stats.length > 0 && (
-                        <span className="badge accent">
-                          <Sparkles size={12} /> {template.stats.length} stats
-                        </span>
-                      )}
-                    </div>
+                      </div>
+                    )}
                     <h3>{template.name}</h3>
                     <p className="template-desc">
                       {template.description || 'No description provided.'}
                     </p>
-                    {formatDate(template.created_at) && (
-                      <div className="template-meta">
-                        <span className="badge">Created {formatDate(template.created_at)}</span>
+                    {Array.isArray(template.stats) && template.stats.length > 0 && (
+                      <div className="stats-chips">
+                        {normalizeTemplateStats(template.stats).slice(0, 6).map((stat) => (
+                          <span key={stat.name} className="stat-chip">{stat.name}</span>
+                        ))}
+                        {template.stats.length > 6 && (
+                          <span className="stat-chip">+{template.stats.length - 6} more</span>
+                        )}
                       </div>
                     )}
+                    <div className="template-meta">
+                      {formatDate(template.created_at) && (
+                        <span className="badge">
+                          <CalendarDays size={12} /> {formatDate(template.created_at)}
+                        </span>
+                      )}
+                      {template.updated_at &&
+                        template.updated_at !== template.created_at &&
+                        formatDate(template.updated_at) && (
+                          <span className="badge">
+                            <Pencil size={12} /> Updated {formatDate(template.updated_at)}
+                          </span>
+                        )}
+                      <span className="badge">
+                        <User size={12} /> {template.creator_username || auth?.user.username}
+                      </span>
+                    </div>
                     <div className="template-card-actions">
                       <Link href={`/templates/${template.id}`} className="button secondary small">
                         View
@@ -497,14 +554,14 @@ export default function ProfilePage() {
             )}
           </section>
 
-          <section className="card form-card">
+          <section className="card form-card" style={{ padding: '1.5rem' }}>
             <h2>Account</h2>
             <p style={{ margin: 0 }}>
               Logged in as <strong>{auth.user.username}</strong>
             </p>
             <div className="page-actions">
               <button className="button secondary" type="button" onClick={openUsernameModal}>
-                Change username
+                Change Username
               </button>
               <button className="button secondary" type="button" onClick={handleLogout}>
                 <LogOut size={16} /> Sign out

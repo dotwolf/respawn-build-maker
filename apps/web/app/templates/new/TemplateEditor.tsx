@@ -7,11 +7,16 @@ import { TooltipProvider } from '../../components/TooltipProvider';
 import { apiFetch } from '../../lib/api';
 import { normalizeTemplateStats } from '../../lib/stats';
 import type { StatDefinition } from '../../lib/stats';
+import { getSlotRules } from '../../lib/buildMath';
 import TemplateBasicsStep from './steps/TemplateBasicsStep';
 import TemplateComponentsStep from './steps/TemplateComponentsStep';
 import SlotSection from './components/SlotSection';
 import SlotCanvas from './components/SlotCanvas';
 import ConstraintSection from './components/ConstraintSection';
+import SuggestionCreateModal from '../../components/SuggestionCreateModal';
+import SuggestionReviewModal from '../../components/SuggestionReviewModal';
+import { acceptSuggestion, countPendingSuggestions } from '../../lib/suggestions';
+import type { Suggestion } from '../../lib/suggestions';
 
 export interface SlotPosition {
   x: number;
@@ -118,12 +123,25 @@ export function TemplateEditor({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
+  const [allowSuggestions, setAllowSuggestions] = useState(false);
 
   const [slots, setSlots] = useState<Slot[]>([]);
   const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [components, setComponents] = useState<Component[]>([]);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
   const [templateStats, setTemplateStats] = useState<StatDefinition[]>([]);
+
+  const [isSuggestionCreateOpen, setIsSuggestionCreateOpen] = useState(false);
+  const [isSuggestionReviewOpen, setIsSuggestionReviewOpen] = useState(false);
+  const [pendingSuggestionCount, setPendingSuggestionCount] = useState(0);
+  // Suggestions accepted in the review modal but not yet committed to the
+  // server. They only take effect once the template is saved; refreshing or
+  // closing without saving discards them and they stay pending server-side.
+  const [acceptedSuggestions, setAcceptedSuggestions] = useState<Suggestion[]>([]);
+  // Tracks suggestion ids whose changes have already been merged into the local
+  // pool so a suggestion can never be applied twice (which would duplicate its
+  // added components).
+  const appliedSuggestionIdsRef = useRef<Set<string>>(new Set());
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [panelWidths, setPanelWidths] = useState({ left: 25, middle: 50, right: 25 });
@@ -132,18 +150,21 @@ export function TemplateEditor({
   const [templateLoaded, setTemplateLoaded] = useState(false);
   const [loadedSnapshot, setLoadedSnapshot] = useState<string | null>(
     mode === 'create'
-      ? JSON.stringify({ name: '', description: '', isPrivate: false, slots: [], constraints: [], components: [], templateStats: [] })
+      ? JSON.stringify({ name: '', description: '', isPrivate: false, allowSuggestions: false, slots: [], constraints: [], components: [], templateStats: [] })
       : null
   );
+  const [pendingLeave, setPendingLeave] = useState<string | null>(null);
   const editorShellRef = useRef<HTMLDivElement | null>(null);
+  const allowUnloadRef = useRef(false);
 
   const currentSnapshot = useMemo(
-    () => JSON.stringify({ name, description, isPrivate, slots, constraints, components, templateStats }),
-    [name, description, isPrivate, slots, constraints, components, templateStats]
+    () => JSON.stringify({ name, description, isPrivate, allowSuggestions, slots, constraints, components, templateStats }),
+    [name, description, isPrivate, allowSuggestions, slots, constraints, components, templateStats]
   );
 
   const isCreator = mode === 'view' && auth?.user != null && creatorUserId != null && creatorUserId === auth.user.id;
   const hasUnsavedChanges = loadedSnapshot !== null && currentSnapshot !== loadedSnapshot;
+  const isDirty = mode !== 'view' && hasUnsavedChanges;
 
   useEffect(() => {
     if (!templateLoaded) return;
@@ -151,7 +172,8 @@ export function TemplateEditor({
     setTemplateLoaded(false);
   }, [templateLoaded, currentSnapshot]);
 
-  // Automatically derive all unique stats defined across components (guaranteed array fallback)
+  // Automatically derive all unique stats defined across components and slot
+  // stat-point/level/class formulas (guaranteed array fallback)
   const derivedStats = useMemo(() => {
     const statSet = new Set<string>();
 
@@ -173,9 +195,35 @@ export function TemplateEditor({
       });
     });
 
+    // Slot-defined stats: stat point options, level formula keys, and class
+    // formula keys. These are priorities the optimizer must be able to see.
+    slots.forEach((slot) => {
+      const stats = slot.stats;
+      if (!stats) return;
+      const rules = getSlotRules(stats);
+
+      if (rules.includes('stat_points')) {
+        (stats.stats || []).forEach((stat) => {
+          if (stat && stat.trim()) statSet.add(stat.trim());
+        });
+      }
+      if (rules.includes('formula')) {
+        Object.keys(stats.formulas || {}).forEach((stat) => {
+          if (stat && stat.trim()) statSet.add(stat.trim());
+        });
+      }
+      if (rules.includes('class_points')) {
+        Object.keys(stats.class_formulas || {}).forEach((className) => {
+          Object.keys(stats.class_formulas?.[className] || {}).forEach((stat) => {
+            if (stat && stat.trim()) statSet.add(stat.trim());
+          });
+        });
+      }
+    });
+
     const statsArray = Array.from(statSet).sort();
     return statsArray.length > 0 ? statsArray : [];
-  }, [components]);
+  }, [components, slots]);
 
   // Authentication check
   useEffect(() => {
@@ -213,6 +261,7 @@ export function TemplateEditor({
         setName(template.name ?? '');
         setDescription(template.description ?? '');
         setIsPrivate(Boolean(template.is_private));
+        setAllowSuggestions(Boolean(template.allow_suggestions));
         setSlots(
           Array.isArray(rules.slots)
             ? rules.slots.map((slot: Slot, index: number) => ({
@@ -232,6 +281,58 @@ export function TemplateEditor({
       })
       .catch((error) => notify(error instanceof Error ? error.message : 'Failed to load template.', 'error'));
   }, [templateId, notify]);
+
+  // Refresh the pending-suggestion count for the review badge (edit mode only).
+  const refreshSuggestionCount = () => {
+    if (mode === 'create' || !templateId) return;
+    countPendingSuggestions()
+      .then(setPendingSuggestionCount)
+      .catch(() => setPendingSuggestionCount(0));
+  };
+
+  // Apply an accepted suggestion's changeset to the local component pool and
+  // queue it for commit. Only the components the suggestion touched are
+  // updated, so any other unsaved edits the creator has made are preserved.
+  const handleSuggestionAccepted = (suggestion: Suggestion) => {
+    setAcceptedSuggestions((prev) => [...prev.filter((s) => s.id !== suggestion.id), suggestion]);
+    setComponents((prev) => {
+      const scopedOf = (comp: Component): number | undefined =>
+        (comp as Component & { scoped_number?: number }).scoped_number;
+
+      const removedSet = new Set(suggestion.removed ?? []);
+      const editedByNumber = new Map<number, Component>();
+      (suggestion.edited ?? []).forEach((comp) => {
+        const scoped = scopedOf(comp);
+        if (typeof scoped === 'number') editedByNumber.set(scoped, comp);
+      });
+
+      let maxNumber = 0;
+      const kept = prev.filter((comp) => {
+        const scoped = scopedOf(comp);
+        if (typeof scoped !== 'number') return true;
+        maxNumber = Math.max(maxNumber, scoped);
+        return !removedSet.has(scoped);
+      });
+
+      const merged = kept.map((comp) => {
+        const scoped = scopedOf(comp);
+        const replacement = typeof scoped === 'number' ? editedByNumber.get(scoped) : undefined;
+        return replacement ? { ...comp, ...replacement } : comp;
+      });
+
+      const added = (suggestion.added ?? []).map((comp, idx) => ({
+        ...comp,
+        scoped_number: maxNumber + idx + 1,
+      }));
+
+      return [...merged, ...added];
+    });
+  };
+
+  useEffect(() => {
+    refreshSuggestionCount();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, templateId]);
 
   // Keep the ordered stat list in sync with the component pool: preserve the
   // author's order/group/negative flags for existing stats, append new ones.
@@ -260,18 +361,73 @@ export function TemplateEditor({
 
   // Warn user before leaving page if there are unsaved changes
   useEffect(() => {
+    if (!isDirty) return;
+
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (hasUnsavedChanges && !isSubmitting) {
-        event.preventDefault();
-        event.returnValue = '';
-      }
+      if (allowUnloadRef.current || isSubmitting) return;
+      event.preventDefault();
+      event.returnValue = '';
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [hasUnsavedChanges, isSubmitting]);
+  }, [isDirty, isSubmitting]);
+
+  // Block in-app link navigation while there are unsaved changes and ask for
+  // confirmation instead. Uses the capture phase so it runs before the link's
+  // own handler and Next's client-side router.
+  useEffect(() => {
+    if (!isDirty) return;
+
+    const isSamePage = (href: string) => {
+      if (href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return true;
+      try {
+        const base = new URL(window.location.href);
+        const target = new URL(href, base);
+        return target.origin === base.origin && target.pathname === base.pathname && target.search === base.search;
+      } catch {
+        return true;
+      }
+    };
+
+    const handleClick = (event: MouseEvent) => {
+      if (
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey ||
+        event.defaultPrevented
+      ) {
+        return;
+      }
+      const anchor = (event.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!anchor) return;
+      if (anchor.target === '_blank' || anchor.hasAttribute('download')) return;
+      const href = anchor.getAttribute('href') ?? '';
+      if (!href || isSamePage(href)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPendingLeave(href);
+    };
+
+    document.addEventListener('click', handleClick, true);
+    return () => document.removeEventListener('click', handleClick, true);
+  }, [isDirty]);
+
+  const handleConfirmLeave = () => {
+    const href = pendingLeave;
+    if (!href) return;
+    setPendingLeave(null);
+    allowUnloadRef.current = true;
+    if (href.startsWith('/') || href.startsWith('#')) {
+      router.push(href);
+    } else {
+      window.location.assign(href);
+    }
+  };
 
   // Panel Resizing via Pointer Events
   useEffect(() => {
@@ -406,12 +562,40 @@ export function TemplateEditor({
           description,
           rules: { slots, constraints },
           is_private: isPrivate,
+          allow_suggestions: allowSuggestions,
           stats: payloadStats,
           components: formattedComponents,
         }),
       });
 
       const savedTemplateId = response.id;
+
+      // Commit any accepted-but-not-yet-saved suggestions now that the template
+      // itself has been persisted. A failed finalize keeps the suggestion queued
+      // so a subsequent save can retry it.
+      if (templateId && acceptedSuggestions.length > 0) {
+        const failedFinalizes: Suggestion[] = [];
+        for (const suggestion of acceptedSuggestions) {
+          try {
+            await acceptSuggestion(templateId, suggestion.id);
+          } catch {
+            failedFinalizes.push(suggestion);
+          }
+        }
+        setAcceptedSuggestions(failedFinalizes);
+        if (failedFinalizes.length === 0) {
+          refreshSuggestionCount();
+          notify(
+            `Applied ${acceptedSuggestions.length} queued suggestion${acceptedSuggestions.length === 1 ? '' : 's'} and notified the author${acceptedSuggestions.length === 1 ? '' : 's'}.`,
+            'success'
+          );
+        } else {
+          notify(
+            `${failedFinalizes.length} queued suggestion${failedFinalizes.length === 1 ? '' : 's'} could not be finalized and will be retried on your next save.`,
+            'error'
+          );
+        }
+      }
 
       if (mode === 'edit') {
         notify('Template updated successfully.', 'success');
@@ -478,6 +662,8 @@ export function TemplateEditor({
               setDescription={setDescription}
               isPrivate={isPrivate}
               setIsPrivate={setIsPrivate}
+              allowSuggestions={allowSuggestions}
+              setAllowSuggestions={setAllowSuggestions}
               stats={templateStats}
               setStats={setTemplateStats}
               readOnly={mode === 'view'}
@@ -549,6 +735,51 @@ export function TemplateEditor({
               readOnly={mode === 'view'}
             />
 
+            {mode === 'view' && templateId && auth != null && !isCreator && allowSuggestions && (
+              <div className="card form-card suggestion-entry">
+                <h3 style={{ margin: 0 }}>Create public inventory suggestion</h3>
+                <p className="panel-subtitle">
+                  Propose new components for this template&apos;s inventory. The author will review
+                  and can accept or dismiss your suggestion.
+                </p>
+                <button type="button" onClick={() => setIsSuggestionCreateOpen(true)}>
+                  New Suggestion
+                </button>
+              </div>
+            )}
+
+            {mode !== 'view' && templateId && allowSuggestions && (
+              <div className="card form-card suggestion-entry">
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div>
+                    <h3 style={{ margin: 0 }}>
+                      Public Inventory Suggestions
+                      {pendingSuggestionCount > 0 && (
+                        <span className="badge" style={{ marginLeft: '0.5rem' }}>
+                          {pendingSuggestionCount}
+                        </span>
+                      )}
+                    </h3>
+                    <p className="panel-subtitle">
+                      Review community component suggestions. Accepted components are added to the
+                      inventory pool.
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => setIsSuggestionReviewOpen(true)}>
+                    Review
+                  </button>
+                </div>
+              </div>
+            )}
+
             {mode === 'view' && templateId && (
               <div className={isCreator ? 'editor-footer-split' : 'editor-footer'}>
                 <div className="editor-footer-cell">
@@ -556,9 +787,18 @@ export function TemplateEditor({
                     <h3>Ready to build?</h3>
                     <p className="panel-subtitle">Use this template to create a build.</p>
                   </div>
-                  <button type="button" onClick={() => router.push(`/templates/${templateId}/builds/new`)}>
-                    Create Build
-                  </button>
+                  <div className="editor-footer-cell-actions">
+                    <button
+                      type="button"
+                      className="button secondary"
+                      onClick={() => router.push(`/builds?template=${encodeURIComponent(templateId)}`)}
+                    >
+                      Public Builds
+                    </button>
+                    <button type="button" onClick={() => router.push(`/templates/${templateId}/builds/new`)}>
+                      Create Build
+                    </button>
+                  </div>
                 </div>
                 {isCreator && (
                   <div className="editor-footer-cell">
@@ -602,6 +842,58 @@ export function TemplateEditor({
           </section>
         </div>
       </main>
+
+      {isSuggestionCreateOpen && templateId && (
+        <SuggestionCreateModal
+          open={isSuggestionCreateOpen}
+          templateId={templateId}
+          templateName={name || 'this template'}
+          availableCategories={availableCategories}
+          availableSlots={slots.map((s) => s.slot_name).filter(Boolean)}
+          onClose={() => setIsSuggestionCreateOpen(false)}
+        />
+      )}
+
+      {isSuggestionReviewOpen && templateId && (
+        <SuggestionReviewModal
+          open={isSuggestionReviewOpen}
+          templateId={templateId}
+          templateName={name || 'this template'}
+          onClose={() => setIsSuggestionReviewOpen(false)}
+          onAccepted={(suggestion) => {
+            handleSuggestionAccepted(suggestion);
+            refreshSuggestionCount();
+          }}
+        />
+      )}
+
+      {pendingLeave && (
+        <div className="modal-overlay" onClick={() => setPendingLeave(null)}>
+          <div
+            className="modal-content"
+            style={{ maxWidth: 440, padding: '1.5rem' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-actions-bar">
+              <h3 style={{ margin: 0 }}>Discard changes?</h3>
+            </div>
+            <p style={{ marginTop: '1rem' }}>
+              You have unsaved changes. Leaving this page will discard your template.
+            </p>
+            <div
+              className="modal-footer"
+              style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}
+            >
+              <button type="button" className="button secondary" onClick={() => setPendingLeave(null)}>
+                Stay
+              </button>
+              <button type="button" className="button" onClick={handleConfirmLeave}>
+                Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </TooltipProvider>
   );
 }

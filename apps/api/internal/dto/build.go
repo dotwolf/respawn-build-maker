@@ -24,17 +24,19 @@ type BuildUpdateRequest struct {
 }
 
 type BuildResponse struct {
-	ID            string          `json:"id"`
-	Name          string          `json:"name"`
-	Description   string          `json:"description,omitempty"`
-	CreatorUserID int32           `json:"creator_user_id"`
-	TemplateID    string          `json:"template_id"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
-	Tags          []string        `json:"tags,omitempty"`
-	VoteScore     int32           `json:"vote_score"`
-	Components    json.RawMessage `json:"components,omitempty"`
-	IsPrivate     bool            `json:"is_private"`
+	ID              string          `json:"id"`
+	Name            string          `json:"name"`
+	Description     string          `json:"description,omitempty"`
+	CreatorUserID   int32           `json:"creator_user_id"`
+	CreatorUsername string          `json:"creator_username,omitempty"`
+	TemplateID      string          `json:"template_id"`
+	TemplateName    string          `json:"template_name,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+	Tags            []string        `json:"tags,omitempty"`
+	VoteScore       int32           `json:"vote_score"`
+	Components      json.RawMessage `json:"components,omitempty"`
+	IsPrivate       bool            `json:"is_private"`
 }
 
 func ToBuildResponse(build *repository.Build) *BuildResponse {
@@ -148,6 +150,69 @@ func ToBuildResponsesFromListByUser(builds []repository.ListBuildsByUserRow) []*
 
 func ToBuildResponsesFromListByTemplate(builds []repository.ListBuildsByTemplateRow) []*BuildResponse {
 	result := make([]*BuildResponse, len(builds))
+	for i := range builds {
+		b := builds[i]
+		result = append(result, &BuildResponse{
+			ID:            b.ID,
+			Name:          b.Name,
+			Description:   b.Description.String,
+			CreatorUserID: b.CreatorUserID,
+			TemplateID:    b.TemplateID,
+			CreatedAt:     b.CreatedAt.Time,
+			UpdatedAt:     b.UpdatedAt.Time,
+			Tags:          b.Tags,
+			VoteScore:     b.VoteScore,
+			Components:    json.RawMessage(b.Components),
+			IsPrivate:     b.IsPrivate,
+		})
+	}
+	return result
+}
+
+func ToBuildResponsesFromListPublic(builds []repository.ListPublicBuildsRow) []*BuildResponse {
+	result := make([]*BuildResponse, 0, len(builds))
+	for i := range builds {
+		b := builds[i]
+		result = append(result, &BuildResponse{
+			ID:            b.ID,
+			Name:          b.Name,
+			Description:   b.Description.String,
+			CreatorUserID: b.CreatorUserID,
+			TemplateID:    b.TemplateID,
+			CreatedAt:     b.CreatedAt.Time,
+			UpdatedAt:     b.UpdatedAt.Time,
+			Tags:          b.Tags,
+			VoteScore:     b.VoteScore,
+			Components:    json.RawMessage(b.Components),
+			IsPrivate:     b.IsPrivate,
+		})
+	}
+	return result
+}
+
+func ToBuildResponsesFromListPublicByTemplate(builds []repository.ListPublicBuildsByTemplateRow) []*BuildResponse {
+	result := make([]*BuildResponse, 0, len(builds))
+	for i := range builds {
+		b := builds[i]
+		result = append(result, &BuildResponse{
+			ID:            b.ID,
+			Name:          b.Name,
+			Description:   b.Description.String,
+			CreatorUserID: b.CreatorUserID,
+			TemplateID:    b.TemplateID,
+			CreatedAt:     b.CreatedAt.Time,
+			UpdatedAt:     b.UpdatedAt.Time,
+			Tags:          b.Tags,
+			VoteScore:     b.VoteScore,
+			Components:    json.RawMessage(b.Components),
+			IsPrivate:     b.IsPrivate,
+		})
+	}
+	return result
+}
+
+func ToBuildResponsesFromListLiked(builds []repository.ListLikedBuildsByUserRow) []*BuildResponse {
+	result := make([]*BuildResponse, 0, len(builds))
 	for i := range builds {
 		b := builds[i]
 		result = append(result, &BuildResponse{

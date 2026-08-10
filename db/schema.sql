@@ -19,6 +19,7 @@ CREATE TABLE templates (
     rules JSONB NOT NULL DEFAULT '[]'::jsonb,
     components JSONB NOT NULL DEFAULT '[]'::jsonb,
     is_private BOOLEAN NOT NULL DEFAULT FALSE,
+    allow_suggestions BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -85,3 +86,19 @@ CREATE INDEX idx_components_template ON components(template_id);
 CREATE INDEX idx_builds_template ON builds(template_id);
 CREATE INDEX idx_builds_creator ON builds(creator_user_id);
 CREATE INDEX idx_build_slots_component ON build_slots(component_id);
+
+-- 7. TEMPLATE SUGGESTIONS TABLE
+CREATE TABLE template_suggestions (
+    id VARCHAR(255) PRIMARY KEY,
+    template_id VARCHAR(255) NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+    author_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    description TEXT,
+    components JSONB NOT NULL DEFAULT '[]'::jsonb,
+    status VARCHAR(32) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted')),
+    author_notified BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_template_suggestions_template ON template_suggestions(template_id);
+CREATE INDEX idx_template_suggestions_author ON template_suggestions(author_user_id);
