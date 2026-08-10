@@ -517,7 +517,7 @@ export default function BuildOptimizerModal({
                 {compactStats(build).map((s) => (
                   <span
                     key={s.stat}
-                    className={`optimizer-chip ${statQuality(s, statIsNegative(templateStats, s.stat))}`}
+                    className={`optimizer-chip optimizer-chip-${statQuality(s, statIsNegative(templateStats, s.stat))}`}
                   >
                     {s.stat} {formatStatSummary(s)}
                   </span>
