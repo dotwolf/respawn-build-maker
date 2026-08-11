@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import type { Slot, SlotRule } from '../page';
+import type { Slot, SlotPosition, SlotRule } from '../page';
 import { useNotification } from '../../../components/NotificationProvider';
 import FormulaHelp from '../../../components/FormulaHelp';
 import { getSlotRules } from '../../../lib/buildMath';
@@ -226,8 +226,185 @@ export default function SlotSection({
   const [newSlotCategories, setNewSlotCategories] = useState<string[]>([]);
   const [editingClassName, setEditingClassName] = useState<string | null>(null);
   const [classDraftName, setClassDraftName] = useState('');
+  const [isPasteOpen, setIsPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [pasteReplace, setPasteReplace] = useState(false);
+  const [pasteIssues, setPasteIssues] = useState<string[]>([]);
 
   const selectedSlot = selectedSlotIndex !== null ? slots[selectedSlotIndex] : null;
+
+  const defaultPositionFor = (index: number): SlotPosition => ({
+    x: 32 + (index % 3) * 124,
+    y: 32 + Math.floor(index / 3) * 124,
+  });
+
+  const copyToClipboard = (text: string): boolean => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).catch(() => {});
+      return true;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      return document.execCommand('copy');
+    } catch {
+      return false;
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  };
+
+  const handleCopySlots = () => {
+    if (slots.length === 0) {
+      notify('No slots to copy.', 'error');
+      return;
+    }
+    const json = JSON.stringify(slots, null, 2);
+    if (copyToClipboard(json)) {
+      notify(`Copied ${slots.length} slot${slots.length === 1 ? '' : 's'} to clipboard.`, 'success');
+    } else {
+      notify('Copy failed — please copy manually.', 'error');
+    }
+  };
+
+  const handleCopySelectedSlot = () => {
+    if (!selectedSlot) return;
+    const json = JSON.stringify(selectedSlot, null, 2);
+    if (copyToClipboard(json)) {
+      notify(`Copied slot "${selectedSlot.slot_name}" to clipboard.`, 'success');
+    } else {
+      notify('Copy failed — please copy manually.', 'error');
+    }
+  };
+
+  const handleOpenPaste = () => {
+    setPasteText('');
+    setPasteReplace(false);
+    setPasteIssues([]);
+    setIsPasteOpen(true);
+  };
+
+  const validateImportedSlots = (items: unknown[]): { valid: Slot[]; issues: string[] } => {
+    const valid: Slot[] = [];
+    const issues: string[] = [];
+    const seenNames = new Set<string>();
+
+    items.forEach((item, index) => {
+      const label = `Slot ${index + 1}`;
+      if (typeof item !== 'object' || item === null) {
+        issues.push(`${label}: not an object.`);
+        return;
+      }
+
+      const raw = item as Record<string, unknown>;
+      const slotName = typeof raw.slot_name === 'string' ? raw.slot_name.trim() : '';
+      if (!slotName) {
+        issues.push(`${label}: missing slot_name.`);
+        return;
+      }
+      if (seenNames.has(slotName)) {
+        issues.push(`${label} ("${slotName}"): duplicate slot name.`);
+        return;
+      }
+      seenNames.add(slotName);
+
+      const accepts = Array.isArray(raw.accepts)
+        ? raw.accepts
+            .filter((a): a is string => typeof a === 'string' && a.trim().length > 0)
+            .map((a) => a.trim())
+        : [];
+      if (accepts.length === 0) {
+        issues.push(`${label} ("${slotName}"): must have at least one accepted category.`);
+        return;
+      }
+
+      const rawPosition = raw.position;
+      const position =
+        typeof rawPosition === 'object' && rawPosition !== null
+          ? {
+              x: typeof (rawPosition as { x?: unknown }).x === 'number' ? (rawPosition as { x: number }).x : 0,
+              y: typeof (rawPosition as { y?: unknown }).y === 'number' ? (rawPosition as { y: number }).y : 0,
+            }
+          : undefined;
+
+      valid.push({
+        slot_name: slotName,
+        accepts,
+        shown_name: typeof raw.shown_name === 'string' && raw.shown_name.trim() ? raw.shown_name.trim() : undefined,
+        limit: typeof raw.limit === 'number' && !Number.isNaN(raw.limit) ? raw.limit : undefined,
+        position,
+        color: typeof raw.color === 'string' && raw.color.trim() ? raw.color.trim() : undefined,
+        textColor: typeof raw.textColor === 'string' && raw.textColor.trim() ? raw.textColor.trim() : undefined,
+        size: typeof raw.size === 'number' && !Number.isNaN(raw.size) ? raw.size : undefined,
+        transparency: typeof raw.transparency === 'number' && !Number.isNaN(raw.transparency) ? raw.transparency : undefined,
+        stats: typeof raw.stats === 'object' && raw.stats !== null ? (raw.stats as Slot['stats']) : undefined,
+      });
+    });
+
+    return { valid, issues };
+  };
+
+  const handleApplyPaste = () => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(pasteText);
+    } catch {
+      notify('Invalid JSON — could not parse your paste.', 'error');
+      return;
+    }
+
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    if (items.length === 0) {
+      notify('Invalid input: expected a slot or an array of slots.', 'error');
+      return;
+    }
+
+    const { valid, issues } = validateImportedSlots(items);
+    setPasteIssues(issues);
+
+    if (valid.length === 0) {
+      notify('No valid slots found in the pasted JSON.', 'error');
+      return;
+    }
+
+    if (pasteReplace) {
+      setSlots(valid.map((slot, index) => ({ ...slot, position: slot.position ?? defaultPositionFor(index) })));
+      notify(
+        `Imported ${valid.length} slot${valid.length === 1 ? '' : 's'}, existing slots replaced.${issues.length ? ` Skipped ${issues.length} invalid item(s).` : ''}`,
+        'success'
+      );
+    } else {
+      const existing = new Map(slots.map((s) => [s.slot_name, s]));
+      let added = 0;
+      let replaced = 0;
+      valid.forEach((slot, index) => {
+        const incoming = {
+          ...slot,
+          position: slot.position ?? existing.get(slot.slot_name)?.position ?? defaultPositionFor(slots.length + index),
+        };
+        if (existing.has(slot.slot_name)) {
+          replaced += 1;
+        } else {
+          added += 1;
+        }
+        existing.set(slot.slot_name, incoming);
+      });
+      setSlots(Array.from(existing.values()));
+      notify(
+        `Imported ${added} new slot${added === 1 ? '' : 's'}, replaced ${replaced} matching by name.${issues.length ? ` Skipped ${issues.length} invalid item(s).` : ''}`,
+        'success'
+      );
+    }
+
+    setIsPasteOpen(false);
+    setPasteText('');
+    setPasteReplace(false);
+    setPasteIssues([]);
+  };
 
   const handleAddSlot = () => {
     const trimmedName = newSlotName.trim();
@@ -540,9 +717,21 @@ export default function SlotSection({
   return (
     <section className="rules-section">
       <div className="panel-header">
-        <div>
-          <h3>Slots</h3>
-          <p className="panel-subtitle">Create new slots and edit the selected slot details.</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', width: '100%' }}>
+          <div>
+            <h3>Slots</h3>
+            <p className="panel-subtitle">Create new slots and edit the selected slot details.</p>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button type="button" onClick={handleCopySlots} className="secondary small" title="Copy all slots as JSON">
+              Copy JSON
+            </button>
+            {!readOnly && (
+              <button type="button" onClick={handleOpenPaste} className="secondary small" title="Paste JSON to add or replace slots">
+                Paste JSON
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -577,6 +766,9 @@ export default function SlotSection({
                 <h4>{selectedSlot.slot_name}</h4>
               </div>
               {!readOnly && <div className="selected-slot-actions">
+                <button type="button" onClick={handleCopySelectedSlot} className="secondary small" title="Copy this slot as JSON">
+                  Copy JSON
+                </button>
                 <button type="button" onClick={handleDuplicateSlot} className="secondary small">
                   Duplicate
                 </button>
@@ -976,6 +1168,51 @@ export default function SlotSection({
           </div>
         )}
       </div>
+
+      {isPasteOpen && (
+        <div className="modal-overlay" onClick={() => setIsPasteOpen(false)}>
+          <div className="modal-content import-json-form" onClick={(e) => e.stopPropagation()}>
+            <h3>Paste Slot JSON</h3>
+            <p className="hint-label">
+              Paste a single slot or a JSON array of slots. By default, pasted slots are added and any
+              slot already present with the same name is replaced.
+            </p>
+            <textarea
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              rows={14}
+              placeholder='[{ "slot_name": "Weapon", "accepts": ["Weapons"], "stats": { "rules": ["formula"], "stats": ["Damage"], "formulas": { "Damage": "level * 2" } } }]'
+              style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.85rem', boxSizing: 'border-box' }}
+            />
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={pasteReplace}
+                onChange={(e) => setPasteReplace(e.target.checked)}
+              />
+              <span><strong>Remove all existing slots and replace</strong></span>
+            </label>
+            {pasteIssues.length > 0 && (
+              <div className="import-issues">
+                <strong>Validation issues ({pasteIssues.length}):</strong>
+                <ul>
+                  {pasteIssues.map((issue, idx) => (
+                    <li key={idx}>{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="modal-footer" style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button type="button" onClick={() => setIsPasteOpen(false)} className="secondary">
+                Cancel
+              </button>
+              <button type="button" onClick={handleApplyPaste} className="primary">
+                Import Slots
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
