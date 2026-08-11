@@ -1,30 +1,46 @@
 # Respawn Build Maker
-Respawn is a build planner for any RPG. Create a Builder that defines a game's stats, items, equipment slots, and level rules, then create, share, and vote on Builds inside it.
 
-A platform for creating, sharing, and voting on RPG character builds for any game.
+A build planner for any RPG. Create a **Template** that defines a game's stats, items, equipment slots, and level rules, then craft, publish, share, and vote on **Builds** inside it.
 
-The core idea is a two-layer model: a **Template** defines the rules and items of a specific game, and **Builds** are character configurations made within that Builder. Anyone can create a Builder for any game, keep it updated as the game changes, and let the community submit and vote on Builds inside it.
-
----
-
-## Concepts
-
-**Template** - the schema for a game. The creator defines stats, equipment slots, item pools, level-up rules, class modifiers, and component categories (Runes, Enchantments, Jewels, etc.). Think of it as the rulebook.
-
-**Build** - a character configuration inside a Builder: which items are equipped, at what level/tier, with which components socketed, and how stat points are spent. Builds can be kept private or shared publicly for community voting.
-
-When a Template is updated — a weapon nerfed, an item added or edited — all Builds built from it update automatically. Stat recalculations happen at read time; no sync jobs needed. If an item is removed entirely, affected Builds are flagged as outdated rather than silently broken.
-
-No account is required. You can create Templates and Builds locally in your browser and migrate to an account when you want to share.
+Built for community-driven games: anyone can create a Template for any game, keep it updated as the game changes, and let the community submit, vote on, and suggest improvements to Builds.
 
 ---
 
-## Stack
+## Features
 
-| Layer    | Technology           |
-|----------|----------------------|
-| Frontend | Next.js              |
-| Backend  | Go                   |
-| Database | PostgreSQL           |
-| Auth     | JWT                  |
-| Local    | IndexedDB            |
+- **Templates** — Design a full character builder: stats, equipment slots, item pools, level-up rules, class modifiers, and component categories (Runes, Enchantments, Jewels, etc.).
+- **Builds** — Fill a template's slots with items and socketed components, spend stat points, and configure level/tier. Builds can stay private or be published for the community.
+- **Live stat recalculation** — When a Template changes, all Builds built from it update automatically. Stats are computed at read time.
+- **Voting** — Published builds can be upvoted/downvoted so the strongest or most creative entries float to the top.
+- **Suggestions** — Community members can propose edits to a Template; owners review and accept them with in-app notifications.
+- **Local-first optimizer** — Save and browse builds entirely in your browser with no account required. Migrate to an account when you want to share.
+- **Auth** — Email/password or Google sign-in.
+
+## Tech Stack
+
+| Layer    | Technology |
+|----------|------------|
+| Frontend | Next.js, React, TypeScript |
+| Backend  | Go, Gin, pgx |
+| Database | PostgreSQL |
+| Migrations | goose (SQL) |
+| Auth     | JWT (HS256) + Google Identity Services |
+| Local    | IndexedDB, localStorage |
+
+## Repository Layout
+
+```
+├── apps/
+│   ├── api/                  # Go backend
+│   │   ├── cmd/main.go       # Entry point
+│   │   ├── migrations/       # goose SQL migrations
+│   │   ├── sqlc/             # SQLC config
+│   │   └── internal/         # handlers, services, middleware, auth, dto, repository
+│   └── web/                  # Next.js frontend
+│       └── app/              # App Router pages & components
+├── db/schema.sql             # Reference copy of the full schema
+├── Dockerfile                # Builds the API container
+├── docker-compose.yaml       # Postgres + migrations + API for local dev
+├── Makefile                  # Migration helpers
+└── go.mod                    # Go workspace (module "main")
+```
