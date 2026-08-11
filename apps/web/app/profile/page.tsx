@@ -124,16 +124,16 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (auth || !googleClientId) return;
-    let cancelled = false;
 
     const initGoogle = () => {
-      if (!window.google?.accounts?.id || !googleButtonRef.current) return;
+      const el = googleButtonRef.current;
+      if (!el || !window.google?.accounts?.id) return;
       window.google.accounts.id.initialize({
         client_id: googleClientId,
         callback: handleGoogleCredential,
       });
-      googleButtonRef.current.innerHTML = '';
-      window.google.accounts.id.renderButton(googleButtonRef.current, {
+      el.innerHTML = '';
+      window.google.accounts.id.renderButton(el, {
         theme: 'outline',
         size: 'large',
         text: 'continue_with',
@@ -141,24 +141,23 @@ export default function ProfilePage() {
       });
     };
 
-    const existing = document.getElementById('gsi-script');
-    if (existing) {
+    if (window.google?.accounts?.id) {
       initGoogle();
       return;
     }
 
-    const script = document.createElement('script');
-    script.id = 'gsi-script';
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.defer = true;
-    script.onload = () => {
-      if (!cancelled) initGoogle();
-    };
-    document.head.appendChild(script);
+    let script = document.getElementById('gsi-script') as HTMLScriptElement | null;
+    if (!script) {
+      script = document.createElement('script');
+      script.id = 'gsi-script';
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      document.head.appendChild(script);
+    }
+    script.addEventListener('load', initGoogle);
 
     return () => {
-      cancelled = true;
+      script?.removeEventListener('load', initGoogle);
     };
   }, [auth, googleClientId]);
 
@@ -324,42 +323,6 @@ export default function ProfilePage() {
 
           <div className="auth-panels">
             <section className="card form-card">
-              <h2>Register</h2>
-              <div className="form-grid">
-                <label>
-                  Username
-                  <input value={registerUsername} onChange={(e) => setRegisterUsername(e.target.value)} placeholder="Username" />
-                </label>
-                <label>
-                  Email
-                  <input value={registerEmail} onChange={(e) => setRegisterEmail(e.target.value)} placeholder="Email" />
-                </label>
-                <label>
-                  Password
-                  <div className="password-field">
-                    <input
-                      type={showRegisterPassword ? 'text' : 'password'}
-                      value={registerPassword}
-                      onChange={(e) => setRegisterPassword(e.target.value)}
-                      placeholder="Password"
-                    />
-                    <button
-                      type="button"
-                      className="password-toggle"
-                      onClick={() => setShowRegisterPassword((v) => !v)}
-                      aria-label={showRegisterPassword ? 'Hide password' : 'Show password'}
-                    >
-                      {showRegisterPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                </label>
-              </div>
-              <button className="button" type="button" onClick={handleRegister}>
-                Create user
-              </button>
-            </section>
-
-            <section className="card form-card">
               <h2>Login</h2>
               {googleClientId && (
                 <>
@@ -401,8 +364,42 @@ export default function ProfilePage() {
                 Sign in
               </button>
             </section>
+            <section className="card form-card">
+              <h2>Register</h2>
+              <div className="form-grid">
+                <label>
+                  Username
+                  <input value={registerUsername} onChange={(e) => setRegisterUsername(e.target.value)} placeholder="Username" />
+                </label>
+                <label>
+                  Email
+                  <input value={registerEmail} onChange={(e) => setRegisterEmail(e.target.value)} placeholder="Email" />
+                </label>
+                <label>
+                  Password
+                  <div className="password-field">
+                    <input
+                      type={showRegisterPassword ? 'text' : 'password'}
+                      value={registerPassword}
+                      onChange={(e) => setRegisterPassword(e.target.value)}
+                      placeholder="Password"
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      onClick={() => setShowRegisterPassword((v) => !v)}
+                      aria-label={showRegisterPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showRegisterPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                </label>
+              </div>
+              <button className="button" type="button" onClick={handleRegister}>
+                Create user
+              </button>
+            </section>
           </div>
-
           <LocalBuildsSection emptyMessage="No locally saved builds yet. Sign in to create templates and publish builds — or save optimizer builds locally in your browser to keep them here." />
         </>
       ) : (

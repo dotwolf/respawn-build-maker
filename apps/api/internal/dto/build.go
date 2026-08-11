@@ -7,7 +7,7 @@ import (
 )
 
 type BuildCreateRequest struct {
-	Name        string          `json:"name" binding:"required"`
+	Name        string          `json:"name" binding:"required,max=255"`
 	Description string          `json:"description,omitempty"`
 	Tags        []string        `json:"tags,omitempty"`
 	Components  json.RawMessage `json:"components" binding:"required"`
@@ -16,7 +16,7 @@ type BuildCreateRequest struct {
 
 type BuildUpdateRequest struct {
 	ID          string          `json:"id" binding:"required"`
-	Name        string          `json:"name" binding:"required"`
+	Name        string          `json:"name" binding:"required,max=255"`
 	Description string          `json:"description,omitempty"`
 	Tags        []string        `json:"tags,omitempty"`
 	Components  json.RawMessage `json:"components" binding:"required"`

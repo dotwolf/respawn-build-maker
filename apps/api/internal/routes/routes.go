@@ -36,12 +36,26 @@ func SetupRoutes(router *gin.Engine, pool *pgxpool.Pool) {
 	authRateLimit := middleware.RateLimit(middleware.NewRateLimiter(10, time.Minute))
 	registerRateLimit := middleware.RateLimit(middleware.NewRateLimiter(5, time.Minute))
 
+	// Per-user throttles on mutating endpoints, falling back to per-IP for
+	// unauthenticated callers. These blunt mass template/build generation and
+	// vote manipulation. Generous per-user budgets so real usage is unaffected.
+	templateCreateLimit := middleware.UserRateLimit(middleware.NewRateLimiter(10, time.Hour))
+	templateEditLimit := middleware.UserRateLimit(middleware.NewRateLimiter(30, time.Hour))
+	templateDeleteLimit := middleware.UserRateLimit(middleware.NewRateLimiter(30, time.Hour))
+	buildCreateLimit := middleware.UserRateLimit(middleware.NewRateLimiter(30, time.Hour))
+	buildEditLimit := middleware.UserRateLimit(middleware.NewRateLimiter(60, time.Hour))
+	buildDeleteLimit := middleware.UserRateLimit(middleware.NewRateLimiter(60, time.Hour))
+	voteLimit := middleware.UserRateLimit(middleware.NewRateLimiter(60, time.Minute))
+	suggestionCreateLimit := middleware.UserRateLimit(middleware.NewRateLimiter(30, time.Hour))
+	suggestionModerateLimit := middleware.UserRateLimit(middleware.NewRateLimiter(60, time.Hour))
+	usernameLimit := middleware.UserRateLimit(middleware.NewRateLimiter(10, time.Hour))
+
 	users := router.Group("/users")
 	{
 		users.POST("", registerRateLimit, handlers.CreateUser(userService))
 		users.GET("", handlers.GetUserByQuery(userService))
 		users.GET("/me", requireAuth, handlers.GetCurrentUser(userService))
-		users.PUT("/me/username", requireAuth, handlers.UpdateUsername(userService))
+		users.PUT("/me/username", requireAuth, usernameLimit, handlers.UpdateUsername(userService))
 		users.DELETE("/:id", requireAuth, handlers.DeleteUser(userService))
 	}
 
@@ -57,9 +71,9 @@ func SetupRoutes(router *gin.Engine, pool *pgxpool.Pool) {
 	builds.GET("/count", requireAuth, handlers.CountBuildsByUser(buildService))
 	builds.GET("/liked", requireAuth, handlers.ListLikedBuilds(buildService))
 	builds.GET("/liked/count", requireAuth, handlers.CountLikedBuildsByUser(buildService))
-	builds.POST("/:build_id/vote", requireAuth, handlers.VoteBuild(buildService))
-	builds.DELETE("/:build_id/vote", requireAuth, handlers.RemoveBuildVote(buildService))
-	builds.DELETE("/:build_id", requireAuth, handlers.DeleteBuild(buildService))
+	builds.POST("/:build_id/vote", requireAuth, voteLimit, handlers.VoteBuild(buildService))
+	builds.DELETE("/:build_id/vote", requireAuth, voteLimit, handlers.RemoveBuildVote(buildService))
+	builds.DELETE("/:build_id", requireAuth, buildDeleteLimit, handlers.DeleteBuild(buildService))
 	}
 
 	router.GET("/public/builds", optionalAuth, handlers.ListPublicBuilds(buildService))
@@ -67,28 +81,28 @@ func SetupRoutes(router *gin.Engine, pool *pgxpool.Pool) {
 
 	templates := router.Group("/templates")
 	{
-		templates.POST("", requireAuth, handlers.CreateTemplate(templateService))
-		templates.POST("/full", requireAuth, handlers.CreateTemplate(templateService))
+		templates.POST("", requireAuth, templateCreateLimit, handlers.CreateTemplate(templateService))
+		templates.POST("/full", requireAuth, templateCreateLimit, handlers.CreateTemplate(templateService))
 		templates.GET("", optionalAuth, handlers.ListTemplates(templateService))
 		templates.GET("/count", optionalAuth, handlers.CountTemplatesByUser(templateService))
 		templates.GET("/:template_id", optionalAuth, handlers.GetTemplateByID(templateService))
-		templates.PUT("/:template_id", requireAuth, handlers.UpdateTemplate(templateService))
-		templates.DELETE("/:template_id", requireAuth, handlers.DeleteTemplate(templateService))
+		templates.PUT("/:template_id", requireAuth, templateEditLimit, handlers.UpdateTemplate(templateService))
+		templates.DELETE("/:template_id", requireAuth, templateDeleteLimit, handlers.DeleteTemplate(templateService))
 
 		suggestions := templates.Group("/:template_id/suggestions")
 		{
-			suggestions.POST("", requireAuth, handlers.CreateSuggestion(suggestionService))
+			suggestions.POST("", requireAuth, suggestionCreateLimit, handlers.CreateSuggestion(suggestionService))
 			suggestions.GET("", requireAuth, handlers.ListSuggestionsByTemplate(suggestionService))
-			suggestions.POST("/:suggestion_id/accept", requireAuth, handlers.AcceptSuggestion(suggestionService))
-			suggestions.DELETE("/:suggestion_id", requireAuth, handlers.DeleteSuggestion(suggestionService))
+			suggestions.POST("/:suggestion_id/accept", requireAuth, suggestionModerateLimit, handlers.AcceptSuggestion(suggestionService))
+			suggestions.DELETE("/:suggestion_id", requireAuth, suggestionModerateLimit, handlers.DeleteSuggestion(suggestionService))
 		}
 
 		builds := templates.Group("/:template_id/builds")
 		{
-			builds.POST("", requireAuth, handlers.CreateBuild(buildService))
+			builds.POST("", requireAuth, buildCreateLimit, handlers.CreateBuild(buildService))
 			builds.GET("", optionalAuth, handlers.ListBuildsByTemplate(buildService))
 			builds.GET("/:build_id", optionalAuth, handlers.GetBuildByID(buildService))
-			builds.PUT("/:build_id", requireAuth, handlers.UpdateBuildByID(buildService))
+			builds.PUT("/:build_id", requireAuth, buildEditLimit, handlers.UpdateBuildByID(buildService))
 		}
 	}
 

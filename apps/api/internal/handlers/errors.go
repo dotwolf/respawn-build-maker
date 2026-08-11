@@ -30,6 +30,9 @@ func respondError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, services.ErrUnauthorized):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+	case errors.Is(err, services.ErrLoginBlocked):
+		c.Header("Retry-After", "900")
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
 	case errors.Is(err, services.ErrForbidden):
 		c.JSON(http.StatusForbidden, gin.H{"error": "you do not have permission to do that"})
 	case errors.Is(err, services.ErrNotFound), errors.Is(err, pgx.ErrNoRows):

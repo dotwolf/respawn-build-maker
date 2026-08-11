@@ -7,7 +7,7 @@ import (
 )
 
 type TemplateCreateRequest struct {
-	Name             string                 `json:"name" binding:"required"`
+	Name             string                 `json:"name" binding:"required,max=255"`
 	Description      *string                `json:"description"`
 	Rules            json.RawMessage        `json:"rules" binding:"required"`
 	IsPrivate        bool                   `json:"is_private"`
@@ -18,7 +18,7 @@ type TemplateCreateRequest struct {
 
 type TemplateUpdateRequest struct {
 	ID               string                  `json:"id"`
-	Name             string                  `json:"name" binding:"required"`
+	Name             string                  `json:"name" binding:"required,max=255"`
 	Description      *string                 `json:"description"`
 	IsPrivate        *bool                   `json:"is_private"`
 	AllowSuggestions *bool                   `json:"allow_suggestions"`
@@ -71,10 +71,10 @@ func ToTemplateResponse(template *repository.Template, components []ComponentCre
 
 type ComponentCreateInput struct {
 	ScopedNumber int             `json:"scoped_number" binding:"required,gt=0"`
-	Name         string          `json:"name" binding:"required"`
+	Name         string          `json:"name" binding:"required,max=255"`
 	Description  *string         `json:"description"`
 	SubCategory  *string         `json:"sub_category"`
-	Category     string          `json:"category" binding:"required"`
+	Category     string          `json:"category" binding:"required,max=255"`
 	Effects      json.RawMessage `json:"effects" binding:"required"`
 	HasLevels    bool            `json:"has_levels"`
 	LevelScaling *string         `json:"level_scaling"`

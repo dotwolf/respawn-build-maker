@@ -1,9 +1,12 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
+
+	"main/apps/api/internal/auth"
 
 	"github.com/gin-gonic/gin"
 )
@@ -98,15 +101,80 @@ func (rl *RateLimiter) allow(key string) bool {
 	return false
 }
 
+// retryAfter returns how long the caller must wait before the bucket for key
+// refills to its full budget, so clients get an accurate Retry-After header.
+func (rl *RateLimiter) retryAfter(key string) time.Duration {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	b, ok := rl.buckets[key]
+	if !ok || b.tokens >= rl.limit {
+		return 0
+	}
+
+	// The bucket refills one token every window/limit; report how long until
+	// it is full again (capped at the full window for safety).
+	refillInterval := rl.window / time.Duration(rl.limit)
+	elapsed := time.Since(b.last)
+	remaining := rl.window - elapsed
+	if remaining < 0 {
+		remaining = 0
+	}
+	wait := remaining - refillInterval
+	if wait < 0 {
+		wait = 0
+	}
+	return wait
+}
+
+// keyFunc extracts the throttle key for a request.
+type keyFunc func(c *gin.Context) string
+
+func clientIPKey(c *gin.Context) string {
+	return c.ClientIP()
+}
+
+func userKey(c *gin.Context) string {
+	if claims, ok := auth.GetClaims(c); ok {
+		return fmt.Sprintf("user:%d", claims.UserID)
+	}
+	return c.ClientIP()
+}
+
 // RateLimit returns a Gin middleware that rejects requests once the per-IP
 // budget is exhausted, responding with 429 and a Retry-After header.
 func RateLimit(rl *RateLimiter) gin.HandlerFunc {
+	return RateLimitByKey(rl, clientIPKey)
+}
+
+// UserRateLimit throttles by the authenticated user ID when present, falling
+// back to the client IP for unauthenticated requests. Apply it after auth
+// middleware so claims are available.
+func UserRateLimit(rl *RateLimiter) gin.HandlerFunc {
+	return RateLimitByKey(rl, userKey)
+}
+
+// RateLimitByKey applies a limiter using an arbitrary key extractor.
+func RateLimitByKey(rl *RateLimiter, key keyFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if rl == nil || rl.allow(c.ClientIP()) {
+		if rl == nil {
 			c.Next()
 			return
 		}
-		c.Header("Retry-After", "60")
+		key := key(c)
+		if rl.allow(key) {
+			c.Next()
+			return
+		}
+		if wait := rl.retryAfter(key); wait > 0 {
+			seconds := int(wait.Seconds())
+			if seconds < 1 {
+				seconds = 1
+			}
+			c.Header("Retry-After", fmt.Sprintf("%d", seconds))
+		} else {
+			c.Header("Retry-After", "60")
+		}
 		c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests, try again later"})
 	}
 }

@@ -28,6 +28,11 @@ func NewTemplateService(pool *pgxpool.Pool) *TemplateService {
 	}
 }
 
+// maxTemplateComponents caps the number of components a single template can
+// hold. Prevents a single create/update request from triggering an unbounded
+// number of DB inserts.
+const maxTemplateComponents = 500
+
 // normalizeRawJSONB returns nil for empty or JSON-null raw values so optional
 // JSONB columns store SQL NULL instead of a literal "null" or an empty blob.
 func normalizeRawJSONB(raw []byte) []byte {
@@ -52,6 +57,9 @@ func (s *TemplateService) CreateTemplateWithComponents(ctx context.Context, crea
 	}
 	if len(req.Components) == 0 {
 		return nil, validationError("at least one component is required")
+	}
+	if len(req.Components) > maxTemplateComponents {
+		return nil, validationError("a template can have at most %d components", maxTemplateComponents)
 	}
 
 	// 1. Begin Database Transaction using s.pool
@@ -357,6 +365,9 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, actorID int32, req
 	}
 	if creatorID != actorID {
 		return nil, ErrForbidden
+	}
+	if len(req.Components) > maxTemplateComponents {
+		return nil, validationError("a template can have at most %d components", maxTemplateComponents)
 	}
 
 	tx, err := s.pool.Begin(ctx)

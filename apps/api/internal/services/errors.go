@@ -7,6 +7,7 @@ var (
 	ErrForbidden           = fmt.Errorf("forbidden")
 	ErrUnauthorized        = fmt.Errorf("unauthorized")
 	ErrGoogleNotConfigured = fmt.Errorf("google login is not configured")
+	ErrLoginBlocked        = fmt.Errorf("too many failed login attempts, try again later")
 )
 
 // ValidationError is returned when request data fails domain validation and
