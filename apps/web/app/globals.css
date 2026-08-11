@@ -4431,6 +4431,80 @@ button[disabled] {
 }
 
 /* =============================================
+   Site footer
+   ============================================= */
+.app-footer {
+    border-top: 1px solid var(--color-border-header);
+    background: var(--color-bg-header);
+    padding: 1rem 2rem;
+    margin-top: 2rem;
+}
+
+.app-footer-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.app-footer-brand {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: .95rem;
+    color: var(--color-text-secondary);
+}
+
+.app-footer-nav {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.app-footer-nav a {
+    color: var(--color-text-secondary);
+    font-size: .9rem;
+}
+
+.app-footer-nav a:hover {
+    color: var(--color-text-primary);
+}
+
+@media (max-width: 720px) {
+    .app-footer {
+        padding: 1rem;
+    }
+}
+
+/* =============================================
+   Legal pages (privacy, terms)
+   ============================================= */
+.legal-card h2 {
+    margin-top: 1.75rem;
+}
+
+.legal-card h2:first-of-type {
+    margin-top: 1.25rem;
+}
+
+.legal-card h3 {
+    margin-top: 1.25rem;
+    font-size: 1.05rem;
+}
+
+.legal-card ul {
+    margin: .5rem 0 1rem;
+    padding-left: 1.5rem;
+    color: var(--color-text-secondary);
+}
+
+.legal-card li {
+    margin: .4rem 0;
+}
+
+/* =============================================
    Motion preferences
    ============================================= */
 @media (prefers-reduced-motion: reduce) {
