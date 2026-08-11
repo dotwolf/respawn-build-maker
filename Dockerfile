@@ -1,13 +1,24 @@
 FROM golang:1.26.1-alpine AS builder
 WORKDIR /app
+
+# Copy root level modules if they exist
 COPY go.mod go.sum ./
 RUN go mod download
+
+# Copy the entire monorepo source code
 COPY . .
-WORKDIR /app/apps/api
-RUN CGO_ENABLED=0 GOOS=linux go build -o api ./cmd/main.go
+
+# Build from the specific api directory path
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/bin/api ./apps/api/cmd/main.go
+
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=builder /app/apps/api/api .
+
+# Set a clean working directory
+WORKDIR /app
+
+# Copy the binary from the builder stage
+COPY --from=builder /app/bin/api ./api
+
 EXPOSE 3001
 CMD ["./api"]
